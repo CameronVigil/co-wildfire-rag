@@ -1,0 +1,21 @@
+# Claude Code local files
+.claude/
+
+# Environment variables
+.env
+.env.*
+*.secret
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+bin/
+obj/
+dist/
+node_modules/
+
+# Logs
+*.log
