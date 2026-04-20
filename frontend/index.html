@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Colorado Wildfire Risk Analyzer</title>
+  </head>
+  <body>
+    <div id="app">
+
+      <!-- ── Map ────────────────────────────────────────────────────────── -->
+      <div id="map-container">
+        <div id="map"></div>
+
+        <!-- Legend overlay -->
+        <div id="legend" aria-label="Risk level legend">
+          <h4>Risk Level</h4>
+          <div class="legend-row"><div class="legend-swatch" style="background:#1a7a1a"></div>Very Low</div>
+          <div class="legend-row"><div class="legend-swatch" style="background:#7dc67d"></div>Low</div>
+          <div class="legend-row"><div class="legend-swatch" style="background:#f5e642"></div>Moderate</div>
+          <div class="legend-row"><div class="legend-swatch" style="background:#f5a623"></div>High</div>
+          <div class="legend-row"><div class="legend-swatch" style="background:#d0021b"></div>Very High</div>
+          <div class="legend-row"><div class="legend-swatch" style="background:#7b0000"></div>Extreme</div>
+          <div class="legend-row"><div class="legend-swatch" style="background:#444"></div>Not scored</div>
+        </div>
+      </div>
+
+      <!-- ── Live feed panel ─────────────────────────────────────────────── -->
+      <aside id="feed-panel" aria-label="Live event feed">
+        <div id="feed-header">
+          <h2>Live Feed</h2>
+          <div id="feed-status">Connecting…</div>
+        </div>
+        <ul id="feed-cards" aria-live="polite" aria-label="Recent events">
+          <li class="feed-placeholder">
+            Live data events will appear here once the backend feed is active (Phase 5).
+          </li>
+        </ul>
+      </aside>
+
+    </div><!-- /#app -->
+
+    <!-- ── Sidebar (bottom drawer) ────────────────────────────────────────── -->
+    <aside id="sidebar" aria-label="Cell risk details and query panel">
+
+      <!-- Sidebar header: cell identity + risk badge -->
+      <div id="sidebar-header">
+        <h2>Cell Analysis</h2>
+        <code id="cell-h3index">—</code>
+        <span id="cell-risk-badge">Unknown</span>
+        <span id="cell-risk-score">—</span>
+        <button id="sidebar-close-btn" aria-label="Close panel">✕</button>
+      </div>
+
+      <div id="sidebar-body">
+
+        <!-- Left column: cell stats + conditions -->
+        <div id="sidebar-cell-info">
+
+          <div class="info-section" id="stats-section">
+            <h3>Fire History</h3>
+            <div class="info-row">
+              <span class="info-label">Fires (20 yr)</span>
+              <span class="info-value" id="cell-fires-count">—</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Acres burned</span>
+              <span class="info-value" id="cell-acres-burned">—</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Last fire year</span>
+              <span class="info-value" id="cell-last-fire-year">—</span>
+            </div>
+          </div>
+
+          <div class="info-section" id="conditions-section">
+            <h3>Current Conditions</h3>
+            <div class="info-row">
+              <span class="info-label">Wind speed</span>
+              <span class="cond-value" id="cond-wind">—</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Rel. humidity</span>
+              <span class="cond-value" id="cond-humidity">—</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Fuel moisture</span>
+              <span class="cond-value" id="cond-fuel">—</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Red Flag</span>
+              <span class="cond-value" id="cond-red-flag">—</span>
+            </div>
+          </div>
+
+        </div><!-- /#sidebar-cell-info -->
+
+        <!-- Right column: RAG question/answer -->
+        <div id="sidebar-rag">
+          <div id="rag-input-row">
+            <input
+              type="text"
+              id="question-input"
+              placeholder="Ask about this cell's fire risk…"
+              aria-label="Wildfire risk question"
+            />
+            <button id="send-btn" type="button">Ask AI</button>
+          </div>
+
+          <div id="rag-result">
+            <div id="rag-loading" hidden>
+              Analyzing… this may take 10–30 seconds for the first query.
+            </div>
+            <div id="rag-error" hidden></div>
+            <div id="rag-answer">
+              <p class="placeholder">Click a cell on the map, then ask a question to get an AI-powered risk analysis.</p>
+            </div>
+            <ul id="sources-list" aria-label="Source documents"></ul>
+            <div id="processing-ms"></div>
+          </div>
+        </div><!-- /#sidebar-rag -->
+
+      </div><!-- /#sidebar-body -->
+    </aside><!-- /#sidebar -->
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,5 +1,16 @@
 # Colorado Wildfire RAG Analyzer
+    Type a home address → map flies to that location and shows the risk score for that specific hex cell.
 
+    Target Users
+    - Homeowners in Colorado wildland-urban interface (WUI) zones wanting to know their current fire risk
+    - Fire professionals / emergency managers tracking conditions across counties
+    - Insurance analysts assessing portfolio risk across the state
+    - Researchers querying historical incident data in natural language
+
+    ---
+    The Core Differentiator
+
+    Most wildfire tools show you where fires are right now. This app combines historical burn patterns + live weather + terrain data + AI document retrieval into a single risk score per cell, updated hourly — and lets you ask questions about it in plain English.
 > **This is a Spec-Driven Development (SDD) project.**
 > All features, architecture decisions, API contracts, and data models are fully specified
 > in this Documentation folder before any code is written. No implementation begins until

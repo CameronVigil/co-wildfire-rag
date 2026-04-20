@@ -54,14 +54,31 @@ try
     // ── HTTP clients ──────────────────────────
     builder.Services.AddHttpClient();
 
+    // Named "noaa" client: NOAA Weather.gov requires a User-Agent header (returns 403 without it)
+    builder.Services.AddHttpClient("noaa", client =>
+    {
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("CoWildfireAnalyzer/1.0 (contact@cowildfire.dev)");
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/geo+json,application/json");
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+
     // ── Services ──────────────────────────────
+    // Singletons: hold in-memory caches that must survive across request scopes
+    builder.Services.AddSingleton<NoaaService>();
+    builder.Services.AddSingleton<RawsService>();
+    builder.Services.AddSingleton<DroughtService>();
+
+    // Scoped / transient: use IDbContextFactory; resolved fresh per scoring run
     builder.Services.AddScoped<H3GridService>();
     builder.Services.AddScoped<MtbsIngester>();
-    builder.Services.AddScoped<RiskScoringService>();
+    builder.Services.AddTransient<RiskScoringService>();
     builder.Services.AddScoped<RagService>();
-    builder.Services.AddScoped<NoaaService>();
     builder.Services.AddScoped<FirmsService>();
     builder.Services.AddScoped<EmbeddingService>();
+    builder.Services.AddScoped<InciwebIngester>();
+
+    // Background service: hourly risk scoring
+    builder.Services.AddHostedService<RiskScoringBackgroundService>();
 
     // ── Controllers with GeoJSON serialisation ─
     builder.Services.AddControllers()
@@ -105,6 +122,32 @@ try
         {
             Log.Warning(ex, "H3 grid seeding skipped (DB may not be available): {Message}", ex.Message);
         }
+    }
+
+    // ── Startup: ensure Qdrant "wildfire_docs" collection exists ─
+    try
+    {
+        var qdrant = app.Services.GetRequiredService<QdrantClient>();
+        var collections = await qdrant.ListCollectionsAsync();
+        bool exists = collections.Any(c => c == "wildfire_docs");
+        if (!exists)
+        {
+            await qdrant.CreateCollectionAsync("wildfire_docs",
+                new Qdrant.Client.Grpc.VectorParams
+                {
+                    Size     = 768,  // nomic-embed-text output dimension
+                    Distance = Qdrant.Client.Grpc.Distance.Cosine,
+                });
+            Log.Information("Qdrant collection 'wildfire_docs' created (768-dim cosine)");
+        }
+        else
+        {
+            Log.Information("Qdrant collection 'wildfire_docs' already exists — skipping creation");
+        }
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "Qdrant collection init skipped (Qdrant may not be available): {Message}", ex.Message);
     }
 
     await app.RunAsync();

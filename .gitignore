@@ -11,6 +11,13 @@
 .DS_Store
 Thumbs.db
 
+# Visual Studio
+.vs/
+*.csproj.user
+
+# Dev secrets
+appsettings.Development.json
+
 # Build output
 bin/
 obj/
