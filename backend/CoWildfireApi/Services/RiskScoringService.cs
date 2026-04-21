@@ -49,6 +49,7 @@ public class RiskScoringService
     private readonly NoaaService    _noaa;
     private readonly RawsService    _raws;
     private readonly DroughtService _drought;
+    private readonly FeedService    _feed;
     private readonly ILogger<RiskScoringService> _logger;
 
     public RiskScoringService(
@@ -56,12 +57,14 @@ public class RiskScoringService
         NoaaService noaa,
         RawsService raws,
         DroughtService drought,
+        FeedService feed,
         ILogger<RiskScoringService> logger)
     {
         _dbFactory = dbFactory;
         _noaa      = noaa;
         _raws      = raws;
         _drought   = drought;
+        _feed      = feed;
         _logger    = logger;
     }
 
@@ -186,6 +189,15 @@ public class RiskScoringService
         _logger.LogInformation(
             "Risk scoring complete: {Scored} scored, {Skipped} skipped (no weather data) in {Elapsed}ms",
             scored, skipped, sw.ElapsedMilliseconds);
+
+        await _feed.PublishAsync(new Models.LiveFeedEvent
+        {
+            Type     = "risk_score",
+            Severity = redFlag ? "warning" : "info",
+            Source   = "RiskScoringService",
+            Detail   = $"Hourly risk scoring: {scored} cells scored, {skipped} skipped" +
+                       (redFlag ? " (Red Flag Warning active)" : ""),
+        }, ct);
     }
 
     // ── Formula ────────────────────────────────────────────────────────────────────

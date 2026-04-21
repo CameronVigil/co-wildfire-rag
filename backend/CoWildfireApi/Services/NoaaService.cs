@@ -23,6 +23,7 @@ namespace CoWildfireApi.Services;
 public class NoaaService
 {
     private readonly HttpClient _http;
+    private readonly FeedService _feed;
     private readonly ILogger<NoaaService> _logger;
 
     // Grid point URL cache (permanent per lat/lon) — keyed by h3Index
@@ -54,9 +55,10 @@ public class NoaaService
         })
         .Build();
 
-    public NoaaService(IHttpClientFactory httpFactory, ILogger<NoaaService> logger)
+    public NoaaService(IHttpClientFactory httpFactory, FeedService feed, ILogger<NoaaService> logger)
     {
         _http   = httpFactory.CreateClient("noaa");
+        _feed   = feed;
         _logger = logger;
     }
 
@@ -144,16 +146,29 @@ public class NoaaService
 
             int count = alertJson?.GetProperty("features").GetArrayLength() ?? 0;
 
+            bool previouslyActive;
             await _rfLock.WaitAsync(ct);
             try
             {
-                _redFlagActive = count > 0;
-                _redFlagExpiry = DateTimeOffset.UtcNow.AddHours(1);
+                previouslyActive = _redFlagActive;
+                _redFlagActive   = count > 0;
+                _redFlagExpiry   = DateTimeOffset.UtcNow.AddHours(1);
             }
             finally { _rfLock.Release(); }
 
             if (count > 0)
                 _logger.LogInformation("Red Flag Warning active in Colorado ({Count} zones)", count);
+
+            if (_redFlagActive && !previouslyActive)
+            {
+                await _feed.PublishAsync(new Models.LiveFeedEvent
+                {
+                    Type     = "alert",
+                    Severity = "critical",
+                    Source   = "NOAA",
+                    Detail   = $"Red Flag Warning active in Colorado ({count} zones)",
+                }, ct);
+            }
 
             return _redFlagActive;
         }

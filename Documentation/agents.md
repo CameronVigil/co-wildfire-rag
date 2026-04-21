@@ -12,7 +12,7 @@
 | Name | Role | Phase Ownership | Current Status |
 |---|---|---|---|
 | **Ember** | Frontend development | Phase 4 | Research complete — awaiting spec finalization |
-| **Forge** | Backend development | Phases 1–3, 5 | Research complete — awaiting spec finalization |
+| **Forge** | Backend development | Phases 1–3, 5 | Phases 1–3 and 5 complete (2026-04-20) |
 | **Scout** | Wildfire research + spec review coordinator | Phase 0 | Complete |
 | **Atlas** | Architecture & Data spec review | Phase 0 | Complete |
 | **Beacon** | UX, Product & Market spec review | Phase 0 | Complete |
