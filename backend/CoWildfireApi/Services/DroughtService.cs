@@ -76,7 +76,11 @@ public class DroughtService
                          $"GetDroughtSeverityStatisticsByAreaPercent" +
                          $"?aoi=08&startdate={start}&enddate={end}&statisticsType=1";
 
-            var entries = await _http.GetFromJsonAsync<JsonElement[]>(url, ct);
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Accept.ParseAdd("application/json");
+            using var resp = await _http.SendAsync(req, ct);
+            resp.EnsureSuccessStatusCode();
+            var entries = await resp.Content.ReadFromJsonAsync<JsonElement[]>(ct);
             if (entries == null || entries.Length == 0)
                 return _cachedPdsi;
 

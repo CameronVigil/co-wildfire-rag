@@ -75,6 +75,68 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   color: var(--text-muted);
 }
 
+#feed-status.feed-live {
+  color: #4caf50;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  position: relative;
+}
+
+#feed-status.feed-live::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4caf50;
+  flex-shrink: 0;
+}
+
+/* Ping ring that expands and fades behind the dot */
+#feed-status.feed-live::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4caf50;
+  transform: translateY(-50%) scale(1);
+  animation: feed-dot-ping 1.8s ease-out infinite;
+}
+
+@keyframes feed-dot-ping {
+  0%   { transform: translateY(-50%) scale(1);   opacity: 0.6; }
+  100% { transform: translateY(-50%) scale(2.5); opacity: 0; }
+}
+
+#feed-last-updated {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+@keyframes feed-card-in {
+  from { background: var(--surface-2); }
+  to   { background: transparent; }
+}
+
+.feed-card-new {
+  animation: feed-card-in 0.6s ease-out forwards;
+}
+
+/* Respect user motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  #feed-status.feed-live::after {
+    animation: none;
+  }
+  .feed-card-new {
+    animation: none;
+  }
+}
+
 #feed-cards {
   list-style: none;
   overflow-y: auto;

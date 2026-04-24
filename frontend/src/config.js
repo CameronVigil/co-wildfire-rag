@@ -1,4 +1,4 @@
-export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:5000';
+export const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
 export const COLORADO_CENTER = { lng: -105.5, lat: 39.0 };
 export const COLORADO_ZOOM   = 7;

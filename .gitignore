@@ -15,8 +15,9 @@ Thumbs.db
 .vs/
 *.csproj.user
 
-# Dev secrets
+# Dev secrets — use appsettings.Local.json for machine-specific overrides
 appsettings.Development.json
+appsettings.Local.json
 
 # Build output
 bin/
@@ -26,3 +27,6 @@ node_modules/
 
 # Logs
 *.log
+
+# Large data files (MTBS shapefiles etc — download separately)
+backend/data/

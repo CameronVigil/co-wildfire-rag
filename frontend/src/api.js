@@ -9,7 +9,15 @@ class ApiError extends Error {
 }
 
 async function apiFetch(path, options = {}) {
-  const res = await fetch(API_BASE + path, options);
+  let res;
+  try {
+    res = await fetch(API_BASE + path, options);
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw new ApiError(0, 'Backend unreachable — is the API running on port 5000?', 'OFFLINE');
+    }
+    throw err;
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(res.status, body.error ?? res.statusText, body.code);

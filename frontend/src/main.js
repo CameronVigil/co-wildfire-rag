@@ -2,9 +2,13 @@ import './styles/main.css';
 import { initMap } from './map.js';
 import { initSidebar, bindSendButton, openWithCell, showLoading, showError, renderAnswer } from './sidebar.js';
 import { postQuery } from './api.js';
+import { initFeed } from './feed.js';
 
 // Initialize sidebar DOM bindings
 initSidebar();
+
+// Initialize live feed SSE panel
+initFeed();
 
 // Initialize map — passes cell-click callback
 initMap('map', {

@@ -33,15 +33,13 @@ try
          .AllowAnyMethod()));
 
     // ── PostgreSQL + PostGIS (EF Core) ────────
-    builder.Services.AddDbContext<AppDbContext>(o =>
-        o.UseNpgsql(
-            builder.Configuration.GetConnectionString("DefaultConnection"),
-            npgsql => npgsql.UseNetTopologySuite()));
-
     builder.Services.AddDbContextFactory<AppDbContext>(o =>
         o.UseNpgsql(
             builder.Configuration.GetConnectionString("DefaultConnection"),
             npgsql => npgsql.UseNetTopologySuite()));
+
+    builder.Services.AddScoped<AppDbContext>(sp =>
+        sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
 
     // ── Qdrant ────────────────────────────────
     builder.Services.AddSingleton<QdrantClient>(_ =>
@@ -68,17 +66,24 @@ try
     builder.Services.AddSingleton<RawsService>();
     builder.Services.AddSingleton<DroughtService>();
 
+    // Singletons: hold in-memory state (dedup sets, caches, SSE channels)
+    builder.Services.AddSingleton<FeedService>();
+    builder.Services.AddSingleton<OriginClassifierService>();
+    builder.Services.AddSingleton<FirmsService>();
+    builder.Services.AddSingleton<AirNowService>();
+    builder.Services.AddSingleton<HmsService>();
+
     // Scoped / transient: use IDbContextFactory; resolved fresh per scoring run
     builder.Services.AddScoped<H3GridService>();
     builder.Services.AddScoped<MtbsIngester>();
     builder.Services.AddTransient<RiskScoringService>();
     builder.Services.AddScoped<RagService>();
-    builder.Services.AddScoped<FirmsService>();
     builder.Services.AddScoped<EmbeddingService>();
     builder.Services.AddScoped<InciwebIngester>();
 
-    // Background service: hourly risk scoring
+    // Background services
     builder.Services.AddHostedService<RiskScoringBackgroundService>();
+    builder.Services.AddHostedService<FeedPollingBackgroundService>();
 
     // ── Controllers with GeoJSON serialisation ─
     builder.Services.AddControllers()

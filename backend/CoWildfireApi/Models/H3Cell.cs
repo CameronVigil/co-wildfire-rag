@@ -109,6 +109,11 @@ public class H3Cell
     [Column("red_flag_warning")]
     public bool RedFlagWarning { get; set; }
 
+    // NOAA gridpoint URL cache (permanent — determined by lat/lon, never changes)
+    [Column("noaa_gridpoint_url")]
+    [MaxLength(200)]
+    public string? NoaaGridpointUrl { get; set; }
+
     [Column("weather_source")]
     [MaxLength(10)]
     public string WeatherSource { get; set; } = "NOAA";

@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using CoWildfireApi.Data;
+using Microsoft.EntityFrameworkCore;
 using Polly;
 using Polly.Retry;
 
@@ -17,12 +19,16 @@ namespace CoWildfireApi.Services;
 ///        grid point URL per H3 index (permanent — doesn't change for a given lat/lon).
 ///        Red Flag Warning status (1-hour TTL, shared for all cells).
 ///
+/// Gridpoint URLs are persisted to the database so they survive restarts, eliminating
+/// the /points call for every cell after the first run.
+///
 /// User-Agent header is configured on the named "noaa" HttpClient in Program.cs.
 /// NOAA requires this header — requests without it return 403.
 /// </summary>
 public class NoaaService
 {
     private readonly HttpClient _http;
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<NoaaService> _logger;
 
     // Grid point URL cache (permanent per lat/lon) — keyed by h3Index
@@ -54,10 +60,14 @@ public class NoaaService
         })
         .Build();
 
-    public NoaaService(IHttpClientFactory httpFactory, ILogger<NoaaService> logger)
+    public NoaaService(
+        IHttpClientFactory httpFactory,
+        IDbContextFactory<AppDbContext> dbFactory,
+        ILogger<NoaaService> logger)
     {
-        _http   = httpFactory.CreateClient("noaa");
-        _logger = logger;
+        _http     = httpFactory.CreateClient("noaa");
+        _dbFactory = dbFactory;
+        _logger   = logger;
     }
 
     /// <summary>
@@ -78,7 +88,33 @@ public class NoaaService
         try
         {
             string forecastHourlyUrl = await GetForecastHourlyUrlAsync(h3Index, lat, lon, ct);
+            return await GetWeatherFromUrlAsync(h3Index, forecastHourlyUrl, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "NOAA weather fetch failed for {H3} ({Lat:F4},{Lon:F4})", h3Index, lat, lon);
+            return null;
+        }
+    }
 
+    /// <summary>
+    /// Fetches weather given an already-resolved forecastHourly URL, bypassing the /points lookup.
+    /// Writes the result to the in-memory weather cache. Returns null on failure.
+    /// </summary>
+    internal async Task<NoaaWeather?> GetWeatherFromUrlAsync(
+        string h3Index, string forecastHourlyUrl, CancellationToken ct = default)
+    {
+        // Check weather cache first
+        await _weatherLock.WaitAsync(ct);
+        try
+        {
+            if (_weatherCache.TryGetValue(h3Index, out var cached) && cached.Expiry > DateTimeOffset.UtcNow)
+                return cached.Weather;
+        }
+        finally { _weatherLock.Release(); }
+
+        try
+        {
             var forecastJson = await RetryPipeline.ExecuteAsync(
                 async token => await FetchJsonAsync(forecastHourlyUrl, token), ct);
 
@@ -117,9 +153,75 @@ public class NoaaService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "NOAA weather fetch failed for {H3} ({Lat:F4},{Lon:F4})", h3Index, lat, lon);
+            _logger.LogWarning(ex, "NOAA forecast fetch failed for {H3} url={Url}", h3Index, forecastHourlyUrl);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Returns the NOAA forecastHourly URL for a given cell.
+    /// Checks in-memory cache first, then DB, then falls back to a live /points call.
+    /// Persists newly resolved URLs to the database so they survive restarts.
+    /// </summary>
+    internal async Task<string> GetForecastHourlyUrlAsync(
+        string h3Index, double lat, double lon, CancellationToken ct)
+    {
+        // 1. In-memory cache
+        await _pointsLock.WaitAsync(ct);
+        try
+        {
+            if (_pointsUrlCache.TryGetValue(h3Index, out var cached))
+                return cached;
+        }
+        finally { _pointsLock.Release(); }
+
+        // 2. Database cache
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var dbUrl = await db.H3Cells
+                .Where(c => c.H3Index == h3Index && c.NoaaGridpointUrl != null)
+                .Select(c => c.NoaaGridpointUrl)
+                .FirstOrDefaultAsync(ct);
+
+            if (dbUrl != null)
+            {
+                await _pointsLock.WaitAsync(ct);
+                try { _pointsUrlCache[h3Index] = dbUrl; }
+                finally { _pointsLock.Release(); }
+                return dbUrl;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "DB lookup for NoaaGridpointUrl failed for {H3}, falling back to /points call", h3Index);
+        }
+
+        // 3. Live /points call
+        var pointsJson = await RetryPipeline.ExecuteAsync(
+            async token => await FetchJsonAsync(
+                $"https://api.weather.gov/points/{lat:F4},{lon:F4}", token),
+            ct);
+
+        if (pointsJson == null)
+            throw new InvalidOperationException(
+                $"NOAA /points returned null for ({lat:F4},{lon:F4})");
+
+        string forecastUrl = pointsJson.Value
+            .GetProperty("properties")
+            .GetProperty("forecastHourly")
+            .GetString()
+            ?? throw new InvalidOperationException("forecastHourly URL missing from NOAA response");
+
+        // Write to in-memory cache
+        await _pointsLock.WaitAsync(ct);
+        try { _pointsUrlCache[h3Index] = forecastUrl; }
+        finally { _pointsLock.Release(); }
+
+        // Persist to DB (fire-and-forget; don't block the scoring run)
+        _ = PersistGridpointUrlAsync(h3Index, forecastUrl);
+
+        return forecastUrl;
     }
 
     /// <summary>
@@ -170,40 +272,22 @@ public class NoaaService
     // ── Private helpers ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Returns the NOAA forecastHourly URL for a given cell, caching it permanently
-    /// (the URL is stable for a given lat/lon — it only changes if NOAA redraws grid offices).
+    /// Persists a newly resolved gridpoint URL to the database in the background.
+    /// Uses a fresh DbContext to avoid threading issues with the singleton.
     /// </summary>
-    private async Task<string> GetForecastHourlyUrlAsync(
-        string h3Index, double lat, double lon, CancellationToken ct)
+    private async Task PersistGridpointUrlAsync(string h3Index, string forecastUrl)
     {
-        await _pointsLock.WaitAsync(ct);
         try
         {
-            if (_pointsUrlCache.TryGetValue(h3Index, out var url))
-                return url;
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            await db.H3Cells
+                .Where(c => c.H3Index == h3Index)
+                .ExecuteUpdateAsync(s => s.SetProperty(c => c.NoaaGridpointUrl, forecastUrl));
         }
-        finally { _pointsLock.Release(); }
-
-        var pointsJson = await RetryPipeline.ExecuteAsync(
-            async token => await FetchJsonAsync(
-                $"https://api.weather.gov/points/{lat:F4},{lon:F4}", token),
-            ct);
-
-        if (pointsJson == null)
-            throw new InvalidOperationException(
-                $"NOAA /points returned null for ({lat:F4},{lon:F4})");
-
-        string forecastUrl = pointsJson.Value
-            .GetProperty("properties")
-            .GetProperty("forecastHourly")
-            .GetString()
-            ?? throw new InvalidOperationException("forecastHourly URL missing from NOAA response");
-
-        await _pointsLock.WaitAsync(ct);
-        try { _pointsUrlCache[h3Index] = forecastUrl; }
-        finally { _pointsLock.Release(); }
-
-        return forecastUrl;
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist NoaaGridpointUrl for {H3}", h3Index);
+        }
     }
 
     private async Task<JsonElement?> FetchJsonAsync(string url, CancellationToken ct)

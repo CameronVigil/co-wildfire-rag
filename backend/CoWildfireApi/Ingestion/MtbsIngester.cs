@@ -128,12 +128,11 @@ public class MtbsIngester
         using var reader = new ShapefileDataReader(shapePath, GeoFactory);
         var header = reader.DbaseHeader;
 
-        // Map field indices
-        int idxFireId   = IndexOf(header, "Fire_ID");
-        int idxFireName = IndexOf(header, "Fire_Name");
-        int idxFireYear = IndexOf(header, "Fire_Year");
-        int idxIgDate   = IndexOf(header, "Ig_Date");
-        int idxAcres    = IndexOf(header, "BurnBndAc");
+        // Map field indices (mtbs_perims_DD schema)
+        int idxFireId   = IndexOf(header, "event_id");
+        int idxFireName = IndexOf(header, "incid_name");
+        int idxIgDate   = IndexOf(header, "ig_date");
+        int idxAcres    = IndexOf(header, "burnbndac");
 
         while (reader.Read())
         {
@@ -149,13 +148,13 @@ public class MtbsIngester
                 continue;
 
             // Read fields
-            string fireId   = reader.GetString(idxFireId)?.Trim() ?? Guid.NewGuid().ToString("N");
-            string fireName = reader.GetString(idxFireName)?.Trim() ?? "Unknown";
-            short  year     = (short)(reader.IsDBNull(idxFireYear) ? 0 : Convert.ToInt16(reader.GetValue(idxFireYear)));
+            string fireId    = reader.GetString(idxFireId)?.Trim() ?? Guid.NewGuid().ToString("N");
+            string fireName  = reader.GetString(idxFireName)?.Trim() ?? "Unknown";
             string igDateStr = reader.IsDBNull(idxIgDate) ? "" : reader.GetString(idxIgDate)?.Trim() ?? "";
-            decimal acres   = reader.IsDBNull(idxAcres) ? 0m : Convert.ToDecimal(reader.GetValue(idxAcres));
+            decimal acres    = reader.IsDBNull(idxAcres) ? 0m : Convert.ToDecimal(reader.GetValue(idxAcres));
 
             DateOnly? startDate = DateOnly.TryParse(igDateStr, out var d) ? d : null;
+            short year = startDate.HasValue ? (short)startDate.Value.Year : (short)0;
 
             // Reproject NAD83 → WGS84
             var reprojected = ReprojectGeometry(geom, mathTransform);
