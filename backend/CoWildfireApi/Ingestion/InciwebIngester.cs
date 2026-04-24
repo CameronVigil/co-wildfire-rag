@@ -47,6 +47,7 @@ public class InciwebIngester
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly QdrantClient     _qdrant;
     private readonly EmbeddingService _embed;
+    private readonly Services.FeedService _feed;
     private readonly HttpClient       _http;
     private readonly IConfiguration   _config;
     private readonly ILogger<InciwebIngester> _logger;
@@ -55,6 +56,7 @@ public class InciwebIngester
         IDbContextFactory<AppDbContext> dbFactory,
         QdrantClient qdrant,
         EmbeddingService embed,
+        Services.FeedService feed,
         IHttpClientFactory httpFactory,
         IConfiguration config,
         ILogger<InciwebIngester> logger)
@@ -62,6 +64,7 @@ public class InciwebIngester
         _dbFactory = dbFactory;
         _qdrant    = qdrant;
         _embed     = embed;
+        _feed      = feed;
         _http      = httpFactory.CreateClient();
         _config    = config;
         _logger    = logger;
@@ -116,6 +119,14 @@ public class InciwebIngester
 
                 _logger.LogInformation("Ingested '{Title}' → {Chunks} chunks", incident.Title, chunksUpserted);
                 ingested++;
+
+                await _feed.PublishAsync(new Models.LiveFeedEvent
+                {
+                    Type     = "report_ingested",
+                    Severity = "info",
+                    Source   = "InciWeb",
+                    Detail   = $"Ingested '{incident.Title}' ({chunksUpserted} chunks)",
+                }, ct);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)

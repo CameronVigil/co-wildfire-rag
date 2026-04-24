@@ -42,6 +42,7 @@ public class RagService
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly QdrantClient     _qdrant;
     private readonly EmbeddingService _embed;
+    private readonly FeedService      _feed;
     private readonly IConfiguration   _config;
     private readonly ILogger<RagService> _logger;
 
@@ -49,12 +50,14 @@ public class RagService
         IDbContextFactory<AppDbContext> dbFactory,
         QdrantClient qdrant,
         EmbeddingService embed,
+        FeedService feed,
         IConfiguration config,
         ILogger<RagService> logger)
     {
         _dbFactory = dbFactory;
         _qdrant    = qdrant;
         _embed     = embed;
+        _feed      = feed;
         _config    = config;
         _logger    = logger;
     }
@@ -111,6 +114,15 @@ public class RagService
         }
 
         sw.Stop();
+
+        await _feed.PublishAsync(new LiveFeedEvent
+        {
+            Type     = "rag_query",
+            Severity = "info",
+            Source   = "RagService",
+            H3Index  = cell?.H3Index,
+            Detail   = $"RAG query answered in {sw.ElapsedMilliseconds} ms ({topChunks.Count} sources)",
+        }, ct);
 
         // 9. Assemble response
         return new QueryResponse

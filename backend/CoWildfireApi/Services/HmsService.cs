@@ -1,5 +1,7 @@
 using System.IO.Compression;
 using CoWildfireApi.Models;
+using Microsoft.EntityFrameworkCore;
+using NetTopologySuite.Features;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
 using Polly;
@@ -7,6 +9,12 @@ using Polly.Retry;
 
 namespace CoWildfireApi.Services;
 
+/// <summary>
+/// NOAA HMS daily smoke plume GeoJSON ingestion (Phase 5).
+/// Fetches GeoJSON, keeps only plumes that intersect Colorado, classifies plume origin,
+/// and publishes <c>out_of_state_smoke</c> events for non-CO-origin plumes.
+/// Daily semantic — the run does a delete-then-insert of rows for the target plume_date.
+/// </summary>
 public class HmsService
 {
     private const string BaseUrl =
@@ -43,6 +51,9 @@ public class HmsService
         .Build();
 
     public HmsService(
+        IDbContextFactory<AppDbContext> dbFactory,
+        IOriginClassifierService classifier,
+        FeedService feed,
         IHttpClientFactory httpFactory,
         OriginClassifierService origin,
         FeedService feed,
@@ -83,8 +94,8 @@ public class HmsService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "HMS fetch failed for {Date}", fileDate);
-                return;
-            }
+            return;
+        }
 
             if (zipBytes != null) break;
         }
@@ -106,12 +117,12 @@ public class HmsService
 
             if (published > 0)
                 _logger.LogInformation("HMS: {Published} smoke plume event(s) published for {Date}", published, fileDate);
-        }
+            }
         finally
-        {
+            {
             try { Directory.Delete(tempDir, recursive: true); }
             catch (Exception ex) { _logger.LogDebug(ex, "HMS temp dir cleanup failed: {Dir}", tempDir); }
-        }
+            }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -124,12 +135,12 @@ public class HmsService
     }
 
     private static Task ExtractZipAsync(byte[] zipBytes, string destDir, CancellationToken ct)
-    {
+            {
         using var ms      = new MemoryStream(zipBytes);
         using var archive = new ZipArchive(ms, ZipArchiveMode.Read);
         foreach (var entry in archive.Entries)
         {
-            ct.ThrowIfCancellationRequested();
+                ct.ThrowIfCancellationRequested();
             var dest = Path.Combine(destDir, Path.GetFileName(entry.FullName));
             entry.ExtractToFile(dest, overwrite: true);
         }
@@ -141,7 +152,7 @@ public class HmsService
         // Locate the .shp file — name is hms_smoke{YYYYMMDD}.shp
         var shpFile = Directory.GetFiles(tempDir, "*.shp").FirstOrDefault();
         if (shpFile is null)
-        {
+                {
             _logger.LogWarning("HMS: no .shp file found in extracted archive for {Date}", fileDate);
             return 0;
         }
@@ -165,17 +176,17 @@ public class HmsService
             // Read density (may be string or int — normalise to label)
             string density = "Light";
             if (densityIdx > 0)
-            {
+                {
                 var raw = reader.IsDBNull(densityIdx) ? null : reader.GetValue(densityIdx);
                 density = ParseDensity(raw);
             }
 
             string severity = density switch
-            {
+                {
                 "Heavy"  => "critical",
                 "Medium" => "warning",
-                _        => "info",
-            };
+                    _        => "info",
+                };
 
             // Centroid
             var centroid = geom.Centroid;
@@ -201,7 +212,7 @@ public class HmsService
                 DetectedAt: DateTimeOffset.UtcNow));
 
             published++;
-        }
+    }
 
         return published;
     }
@@ -220,7 +231,7 @@ public class HmsService
     };
 
     private static int IndexOf(DbaseFileHeader header, string fieldName)
-    {
+        {
         for (int i = 0; i < header.NumFields; i++)
             if (string.Equals(header.Fields[i].Name, fieldName, StringComparison.OrdinalIgnoreCase))
                 return i + 1; // ShapefileDataReader field access is 1-based

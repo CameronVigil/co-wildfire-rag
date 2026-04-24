@@ -246,16 +246,29 @@ public class NoaaService
 
             int count = alertJson?.GetProperty("features").GetArrayLength() ?? 0;
 
+            bool previouslyActive;
             await _rfLock.WaitAsync(ct);
             try
             {
-                _redFlagActive = count > 0;
-                _redFlagExpiry = DateTimeOffset.UtcNow.AddHours(1);
+                previouslyActive = _redFlagActive;
+                _redFlagActive   = count > 0;
+                _redFlagExpiry   = DateTimeOffset.UtcNow.AddHours(1);
             }
             finally { _rfLock.Release(); }
 
             if (count > 0)
                 _logger.LogInformation("Red Flag Warning active in Colorado ({Count} zones)", count);
+
+            if (_redFlagActive && !previouslyActive)
+            {
+                await _feed.PublishAsync(new Models.LiveFeedEvent
+                {
+                    Type     = "alert",
+                    Severity = "critical",
+                    Source   = "NOAA",
+                    Detail   = $"Red Flag Warning active in Colorado ({count} zones)",
+                }, ct);
+            }
 
             return _redFlagActive;
         }

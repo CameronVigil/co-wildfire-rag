@@ -61,7 +61,9 @@ try
     });
 
     // ── Services ──────────────────────────────
-    // Singletons: hold in-memory caches that must survive across request scopes
+    // Singletons: hold in-memory caches / subscription state that must survive scopes
+    builder.Services.AddSingleton<FeedService>();
+    builder.Services.AddSingleton<IOriginClassifierService, OriginClassifierService>();
     builder.Services.AddSingleton<NoaaService>();
     builder.Services.AddSingleton<RawsService>();
     builder.Services.AddSingleton<DroughtService>();
@@ -76,6 +78,7 @@ try
     // Scoped / transient: use IDbContextFactory; resolved fresh per scoring run
     builder.Services.AddScoped<H3GridService>();
     builder.Services.AddScoped<MtbsIngester>();
+    builder.Services.AddScoped<TigerSeeder>();
     builder.Services.AddTransient<RiskScoringService>();
     builder.Services.AddScoped<RagService>();
     builder.Services.AddScoped<EmbeddingService>();
@@ -127,6 +130,31 @@ try
         {
             Log.Warning(ex, "H3 grid seeding skipped (DB may not be available): {Message}", ex.Message);
         }
+    }
+
+    // ── Startup: seed TIGER/Line state + county boundaries if tables empty ─
+    using (var scope = app.Services.CreateScope())
+    {
+        try
+        {
+            var tiger = scope.ServiceProvider.GetRequiredService<TigerSeeder>();
+            await tiger.SeedIfEmptyAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "TIGER seeding skipped: {Message}", ex.Message);
+        }
+    }
+
+    // ── Startup: warm the origin classifier cache (prepared geometries) ─
+    try
+    {
+        var classifier = app.Services.GetRequiredService<IOriginClassifierService>();
+        await classifier.EnsureLoadedAsync();
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "OriginClassifier warm-up skipped: {Message}", ex.Message);
     }
 
     // ── Startup: ensure Qdrant "wildfire_docs" collection exists ─

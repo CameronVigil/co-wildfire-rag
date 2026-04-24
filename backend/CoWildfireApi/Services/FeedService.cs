@@ -28,18 +28,18 @@ public class FeedService
         });
         lock (_lock) _channels.Add(ch);
         return ch.Reader;
-    }
+        }
 
     public void Unsubscribe(ChannelReader<FeedItem> reader)
-    {
-        lock (_lock)
         {
+        lock (_lock)
+            {
             var ch = _channels.FirstOrDefault(c => c.Reader == reader);
             if (ch == null) return;
             _channels.Remove(ch);
             ch.Writer.TryComplete();
+            }
         }
-    }
 
     public void Publish(FeedItem item)
     {

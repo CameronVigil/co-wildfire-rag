@@ -13,6 +13,13 @@ public class AppDbContext : DbContext
     public DbSet<FireEventH3Intersection> FireEventH3Intersections => Set<FireEventH3Intersection>();
     public DbSet<IngestionLog> IngestionLogs => Set<IngestionLog>();
 
+    // Phase 5
+    public DbSet<StateBoundary> StateBoundaries => Set<StateBoundary>();
+    public DbSet<CoCounty> CoCounties => Set<CoCounty>();
+    public DbSet<ActiveFireDetection> ActiveFireDetections => Set<ActiveFireDetection>();
+    public DbSet<SmokeEvent> SmokeEvents => Set<SmokeEvent>();
+    public DbSet<AqiObservation> AqiObservations => Set<AqiObservation>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // PostGIS extension
@@ -49,6 +56,30 @@ public class AppDbContext : DbContext
         {
             e.HasIndex(r => new { r.H3Index, r.ScoredAt });
             e.HasIndex(r => r.ScoredAt);
+        });
+
+        // Phase 5 — ActiveFireDetection.Location is a DB-generated STORED column
+        modelBuilder.Entity<ActiveFireDetection>(e =>
+        {
+            e.Property(d => d.Location)
+             .HasComputedColumnSql("ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)", stored: true)
+             .ValueGeneratedOnAddOrUpdate();
+        });
+
+        modelBuilder.Entity<StateBoundary>(e =>
+        {
+            e.HasIndex(s => s.StateFips).IsUnique();
+            e.HasIndex(s => s.StateAbbr).IsUnique();
+        });
+
+        modelBuilder.Entity<CoCounty>(e =>
+        {
+            e.HasIndex(c => c.CountyFips).IsUnique();
+        });
+
+        modelBuilder.Entity<AqiObservation>(e =>
+        {
+            e.HasIndex(a => new { a.H3Index, a.ObservedAt }).IsUnique();
         });
     }
 }

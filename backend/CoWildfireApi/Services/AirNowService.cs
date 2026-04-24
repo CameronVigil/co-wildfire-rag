@@ -1,4 +1,8 @@
+using System.Globalization;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using CoWildfireApi.Data;
 using CoWildfireApi.Models;
 using Polly;
 using Polly.Retry;
@@ -48,6 +52,8 @@ public class AirNowService
         .Build();
 
     public AirNowService(
+        IDbContextFactory<AppDbContext> dbFactory,
+        FeedService feed,
         IHttpClientFactory httpFactory,
         FeedService feed,
         IConfiguration config,
@@ -103,15 +109,17 @@ public class AirNowService
 
         if (published > 0)
             _logger.LogInformation("AirNow: {Published} elevated AQI events published", published);
-    }
+                }
+                finally { sem.Release(); }
+            }).ToList();
 
     // ── Internal ──────────────────────────────────────────────────────────────
 
     private async Task<List<AirNowObs>> FetchObservationsAsync(string apiKey, CancellationToken ct)
-    {
+            {
         await _cacheLock.WaitAsync(ct);
         try
-        {
+                {
             if (_cache.Data != null && _cache.Expiry > DateTimeOffset.UtcNow)
                 return _cache.Data;
 
@@ -124,12 +132,12 @@ public class AirNowService
             {
                 data = await Retry.ExecuteAsync(async t =>
                     await _http.GetFromJsonAsync<List<AirNowObs>>(url, t), ct);
-            }
-            catch (Exception ex)
-            {
+        }
+        catch (Exception ex)
+        {
                 _logger.LogWarning(ex, "AirNow fetch failed");
                 return _cache.Data ?? new();
-            }
+    }
 
             data ??= new();
             // Filter to PM2.5 and Ozone only
