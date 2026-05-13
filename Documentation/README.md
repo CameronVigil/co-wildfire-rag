@@ -39,12 +39,14 @@
 | Phase | Status | Description |
 |---|---|---|
 | 0 | **Complete** | Research & architecture |
-| 1 | Not Started | Data ingestion + fire history grid |
-| 2 | Not Started | Real-time risk scoring |
-| 3 | Not Started | RAG query engine |
-| 4 | Not Started | Heatmap frontend |
-| 5 | Not Started | Live fire layer, alerts, origin classification |
-| 6 | Not Started | Cloud migration (Azure + Claude) |
+| 1 | **Complete** | Data ingestion + fire history grid |
+| 2 | **Complete** | Real-time risk scoring |
+| 3 | **Complete** | RAG query engine |
+| 4 | **Complete** | Heatmap frontend |
+| 5 | **Complete** | Live fire layer, alerts, origin classification |
+| 6 | **Complete** | HMS smoke, county borders, origin classifier refactor |
+| 7 | **Complete** | Map detail, terrain, risk highlighting, UX polish |
+| 8 | Not Started | Cloud migration (Azure + Claude) |
 
 ---
 
@@ -188,7 +190,7 @@ All feature decisions, API design, and UI prioritization must reference these pe
 |---|---|---|
 | Build Tool | **Vite** (vanilla template) | HMR, ES modules, zero config |
 | Map Engine | MapLibre GL JS 4.x | Open source, no proprietary key required |
-| Basemap | MapTiler Cloud (free tier) | 100k tile requests/month; `outdoor-v2` style |
+| Basemap | OpenFreeMap dark vector style | Free, no API key; roads, labels, landmarks, national parks |
 | H3 Client | h3-js 4.x | **v4 breaking change:** `cellToBoundary` returns `[lat,lng]` — reverse to `[lng,lat]` for GeoJSON |
 | Charts | Chart.js 4.4.x + chartjs-adapter-date-fns | Time-series charts; adapter is required |
 | Markdown | marked + dompurify | Safe rendering of LLM Markdown responses |
@@ -289,6 +291,7 @@ co-wildfire-rag/
 │   │   │   ├── ActiveFiresController.cs   ← GET /api/active-fires
 │   │   │   ├── SmokePlumesController.cs   ← GET /api/smoke-plumes
 │   │   │   ├── FeedController.cs          ← GET /api/feed (SSE)
+│   │   │   ├── CountyBoundsController.cs  ← GET /api/county-bounds (GeoJSON)
 │   │   │   └── HealthController.cs        ← GET /api/health
 │   │   ├── Services/
 │   │   │   ├── RiskScoringService.cs
@@ -297,6 +300,7 @@ co-wildfire-rag/
 │   │   │   ├── FirmsService.cs
 │   │   │   ├── H3GridService.cs
 │   │   │   ├── EmbeddingService.cs
+│   │   │   ├── IOriginClassifierService.cs
 │   │   │   ├── OriginClassifierService.cs
 │   │   │   ├── HmsService.cs
 │   │   │   ├── AirNowService.cs
@@ -306,11 +310,14 @@ co-wildfire-rag/
 │   │   │   ├── NifcIngester.cs
 │   │   │   └── InciwebIngester.cs
 │   │   ├── Data/
-│   │   │   └── AppDbContext.cs
+│   │   │   ├── AppDbContext.cs
+│   │   │   └── tiger/                     ← Census TIGER/Line shapefiles (gitignored)
 │   │   ├── Models/
 │   │   │   ├── H3Cell.cs
 │   │   │   ├── FireEvent.cs
 │   │   │   ├── ActiveFireDetection.cs
+│   │   │   ├── LiveFeedEvent.cs
+│   │   │   ├── OriginClassification.cs
 │   │   │   └── RagResponse.cs
 │   │   └── appsettings.Development.json
 │   └── sql/
@@ -324,11 +331,13 @@ co-wildfire-rag/
     └── src/
         ├── map.js
         ├── api.js
+        ├── config.js
         ├── sidebar.js
         ├── feed.js
+        ├── info.js
         ├── layers/
-        │   ├── heatmap.js
-        │   ├── fireHistory.js
+        │   ├── riskGrid.js
+        │   ├── countyBorders.js
         │   ├── activeFires.js
         │   ├── outOfStateFires.js
         │   └── smokePlumes.js
@@ -401,7 +410,80 @@ co-wildfire-rag/
 - [ ] LANDFIRE vegetation/slope raster integration (GDAL.NET)
 - [ ] USFS ADS bark beetle data integration — populate `beetle_kill_severity` on `h3_cells`
 
-### Phase 6 — Cloud Migration
+### Phase 7 — Map Detail, Terrain & Risk UX
+
+Goal: make the map immediately informative and visually compelling. Users should be able to tell at a glance which regions are high or extreme risk, see topographic context, and read city/road names as they zoom in — without losing any existing functionality.
+
+#### 7a — Terminology: "Cell" → "Region" ✅ Complete
+- Renamed all user-facing text, HTML element IDs, CSS selectors, and internal JS function names
+- Backend API field names unchanged (`h3Index`, `/api/risk-grid`) to preserve API compatibility
+- Files affected: `index.html`, `sidebar.js`, `map.js`, `riskGrid.js`, `main.js`, `info.js`, `api.js`, `main.css`
+
+#### 7b — Terrain Hillshade ✅ Complete
+- AWS Terrain Tiles as a `raster-dem` source (free, no API key, terrarium encoding)
+- `hillshade` layer below the H3 hex fill; uses dark-tuned shadow/highlight colors to complement the dark basemap
+- Hillshade inserted `beforeId` of the first vector symbol layer so city/road labels always render above it
+
+#### 7c — Vector Basemap (OpenFreeMap) ✅ Complete
+- Replaced CartoDB Dark Matter raster tiles with OpenFreeMap dark vector style (free, no API key)
+- Provides: richer road network, city/town labels, named landmarks, national parks, rivers — all zoom-responsive
+- All data layers (hex fills, county borders) inserted before the first symbol layer so city/road labels always appear on top
+
+#### 7d — Zoom-Responsive Hex Opacity ✅ Complete
+- Zoom 5–7 (state overview): 0.80 opacity; zoom 8–10 (county): 0.65; zoom 11+ (city/street): 0.45
+- MapLibre `interpolate` expression on `fill-opacity` — smooth transition at all zoom levels
+
+#### 7e — High/Extreme Risk Visual Highlighting ✅ Complete
+- **Animated pulse layer**: separate `fill` filtered to Extreme only; opacity 0.10→0.55 cycle via `setInterval` + `setPaintProperty`
+- **Bold border ring**: `line` layer filtered to High/Very High/Extreme with colored strokes (red, crimson, amber)
+- **Opacity boost**: selected region bumps to 0.95; non-selected use zoom-interpolated BASE_OPACITY
+
+#### 7f — Risk Count Badge ✅ Complete
+- Overlay chips (top-left): Extreme count + High+ count from loaded GeoJSON
+- Clicking either chip flies the map to the highest-scoring region
+
+#### 7g — City Label Styling ✅ Complete
+- After map load, `styleCityLabels()` applies county-label-matching paint to OpenFreeMap place layers
+  (`place_city_large`, `place_city`, `place_town`, `place_village`, `place_suburb`, `place_other`):
+  `text-color: #c0c4d0`, `text-halo-color: #000000`, `text-halo-width: 1.2` — font size unchanged
+
+#### 7h — Legend Click-to-Filter ✅ Complete
+- Clicking a risk level row in the legend highlights only matching regions (opacity 0.95) and dims all others (0.08)
+- Pulse and high-ring layers are adjusted to match the active filter
+- Click the same row again to deselect and restore normal view
+- "Not scored" row is non-interactive
+
+### Phase 9 — Live Feed Enrichment (Planned)
+
+Goal: expand the live feed beyond satellite/weather data to include named incident tracking, fire-related road closures, and expanded NWS fire weather alerts — all using free, no-API-key government endpoints.
+
+#### 9a — Expanded NWS Fire Weather Alerts
+- Current feed catches Red Flag Warnings via `event=Red Flag Warning` filter
+- Expand to include: **Fire Weather Watch**, **Fire Warning**, **Extreme Fire Danger**
+- Same endpoint: `https://api.weather.gov/alerts/active?area=CO`; just widen the event filter list
+- Publish to SSE feed as `fire-weather-watch` and `fire-warning` event types
+- Frontend: new icons/colors for each type in `feed.js`
+
+#### 9b — InciWeb Colorado Incident RSS Feed
+- Poll `https://inciweb.wildfire.gov/feeds/rss/incidents/state/colorado/` every 10 minutes
+- Emit feed events when new incidents appear or existing ones update (acreage, containment change)
+- Different from the existing `InciwebIngester` (which ingests documents for RAG) — this is for named fire tracking in the feed
+- Backend: new `InciwebFeedPoller` background service; frontend: `📋 Incident Update` card type
+
+#### 9c — NIFC/WFIGS Active Incidents
+- Poll IRWIN-sourced ArcGIS REST API for current CO wildland fire incidents:
+  `https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/Current_WildlandFire_Locations/FeatureServer/0/query?where=POOState='US-CO'&outFields=*&f=json`
+- Track new incidents and acreage/containment changes; emit to feed
+- Provides: fire name, discovered date, acres, containment %, coordinates (can fly-to on click)
+- Backend: new `NifcIncidentPoller`; frontend: `🔥 Active Incident` card with fly-to support
+
+#### 9d — CDOT Fire-Related Road Closures
+- Poll CDOT statewide RSS: `https://www.codot.gov/news/feeds/statewide`
+- Filter items whose title or description mentions fire/smoke/evacuation
+- Emit as `road-closure` feed events; frontend: `🚧 Road Closure` card type
+- Useful for residents needing evacuation route awareness
+
+### Phase 8 — Cloud Migration
 - [ ] Swap Ollama for Claude API via Semantic Kernel connector
 - [ ] Migrate to Azure Database for PostgreSQL
 - [ ] Migrate Qdrant to Azure AI Search vector index
