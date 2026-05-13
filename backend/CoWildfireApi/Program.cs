@@ -70,6 +70,9 @@ try
     builder.Services.AddSingleton<FirmsService>();
     builder.Services.AddSingleton<AirNowService>();
     builder.Services.AddSingleton<HmsService>();
+    builder.Services.AddSingleton<InciwebFeedPoller>();
+    builder.Services.AddSingleton<NifcIncidentPoller>();
+    builder.Services.AddSingleton<CdotRssPoller>();
 
     // Scoped / transient: use IDbContextFactory; resolved fresh per scoring run
     builder.Services.AddScoped<H3GridService>();

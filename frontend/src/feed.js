@@ -26,6 +26,11 @@ const EVENT_ICON = {
   'alert':              '🚨',
   'out_of_state_fire':  '🔥',
   'out_of_state_smoke': '🌫️',
+  'fire-weather-watch': '⚡',
+  'fire-warning':       '⛔',
+  'inciweb-incident':   '📋',
+  'active-incident':    '🔥',
+  'road-closure':       '🚧',
 };
 
 // Every named event type the backend emits — onmessage does not fire for named events.
@@ -33,6 +38,8 @@ const FEED_EVENT_TYPES = [
   'fire-detection', 'air-quality', 'smoke-alert', 'data_fetch',
   'risk_score', 'rag_query', 'report_ingested', 'alert',
   'out_of_state_fire', 'out_of_state_smoke', 'heartbeat',
+  'fire-weather-watch', 'fire-warning',
+  'inciweb-incident', 'active-incident', 'road-closure',
 ];
 
 export function initFeed() {

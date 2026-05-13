@@ -169,4 +169,29 @@ const FEED_TYPE_HTML = {
   'out_of_state_smoke':
     `<span style="color:var(--text);font-weight:600;">Out-of-State Smoke</span> — ` +
     `Smoke plume originating outside Colorado detected over the state. Air quality is surfaced in the sidebar. Risk scores are unaffected.`,
+
+  'fire-weather-watch':
+    `<span style="color:var(--text);font-weight:600;">Fire Weather Watch / Extreme Fire Danger</span> — ` +
+    `NWS has issued a Fire Weather Watch or Extreme Fire Danger notice for Colorado. ` +
+    `Conditions are approaching Red Flag thresholds — high winds, critically low humidity, and dry fuels are expected.`,
+
+  'fire-warning':
+    `<span style="color:var(--text);font-weight:600;">Fire Warning</span> — ` +
+    `NWS has issued a Fire Warning for Colorado. Critical fire weather conditions are occurring or imminent. ` +
+    `Outdoor burning should be avoided and fire spread risk is elevated.`,
+
+  'inciweb-incident':
+    `<span style="color:var(--text);font-weight:600;">InciWeb Incident</span> — ` +
+    `A new or updated wildfire incident has been reported on InciWeb for Colorado. ` +
+    `InciWeb is the interagency incident information system used by USFS, NPS, BLM, and state agencies.`,
+
+  'active-incident':
+    `<span style="color:var(--text);font-weight:600;">Active Incident (NIFC)</span> — ` +
+    `NIFC/WFIGS (National Interagency Fire Center) has recorded a new or significantly updated ` +
+    `wildland fire incident in Colorado. Includes acreage and containment data from the IRWIN system.`,
+
+  'road-closure':
+    `<span style="color:var(--text);font-weight:600;">Road Closure (CDOT)</span> — ` +
+    `Colorado DOT has reported a road closure or alert related to fire, smoke, or evacuation activity. ` +
+    `Check the linked report for affected routes and detour information.`,
 };

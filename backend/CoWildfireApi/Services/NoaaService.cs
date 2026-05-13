@@ -45,6 +45,10 @@ public class NoaaService
     private DateTimeOffset _redFlagExpiry = DateTimeOffset.MinValue;
     private readonly SemaphoreSlim _rfLock = new(1, 1);
 
+    // Expanded fire weather alerts (Fire Weather Watch, Fire Warning, Extreme Fire Danger)
+    private readonly HashSet<string> _publishedAlertIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _alertLock = new(1, 1);
+
     private static readonly TimeSpan WeatherCacheTtl = TimeSpan.FromHours(1);
 
     // Polly v8: retry 3 times with exponential backoff on transient failures
@@ -283,6 +287,87 @@ public class NoaaService
             try { _redFlagExpiry = DateTimeOffset.UtcNow.AddMinutes(15); }
             finally { _rfLock.Release(); }
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Polls NWS active alerts for Colorado and emits feed events for newly-active
+    /// Fire Weather Watch, Fire Warning, and Extreme Fire Danger alerts.
+    /// Does not re-emit alerts that were already published in a prior poll.
+    /// </summary>
+    public async Task PollExpandedAlertsAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var json = await RetryPipeline.ExecuteAsync(
+                async token => await FetchJsonAsync(
+                    "https://api.weather.gov/alerts/active?area=CO&status=actual", token),
+                ct);
+
+            if (json == null) return;
+
+            var features   = json.Value.GetProperty("features");
+            var currentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < features.GetArrayLength(); i++)
+            {
+                var feature = features[i];
+
+                var featureId = feature.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String
+                    ? idEl.GetString() ?? ""
+                    : "";
+                if (string.IsNullOrEmpty(featureId)) continue;
+                currentIds.Add(featureId);
+
+                var props     = feature.GetProperty("properties");
+                var eventType = props.TryGetProperty("event", out var evtEl) && evtEl.ValueKind == JsonValueKind.String
+                    ? evtEl.GetString() ?? ""
+                    : "";
+
+                string? feedType = eventType switch
+                {
+                    "Fire Weather Watch"  => "fire-weather-watch",
+                    "Fire Warning"        => "fire-warning",
+                    "Extreme Fire Danger" => "fire-weather-watch",
+                    _ => null,
+                };
+                if (feedType == null) continue;
+
+                await _alertLock.WaitAsync(ct);
+                bool isNew;
+                try { isNew = !_publishedAlertIds.Contains(featureId); }
+                finally { _alertLock.Release(); }
+
+                if (!isNew) continue;
+
+                var headline = props.TryGetProperty("headline", out var hl) && hl.ValueKind == JsonValueKind.String
+                    ? hl.GetString()
+                    : null;
+
+                await _feed.PublishAsync(new Models.LiveFeedEvent
+                {
+                    Type      = feedType,
+                    Severity  = feedType == "fire-warning" ? "critical" : "warning",
+                    Source    = "NWS",
+                    Detail    = headline ?? $"{eventType} issued for Colorado",
+                    SourceUrl = "https://www.weather.gov/alerts/co",
+                }, ct);
+
+                _logger.LogInformation("Fire weather alert published: {Event}", eventType);
+            }
+
+            // Prune expired alert IDs so the set doesn't grow unbounded
+            await _alertLock.WaitAsync(ct);
+            try
+            {
+                _publishedAlertIds.IntersectWith(currentIds);
+                foreach (var id in currentIds) _publishedAlertIds.Add(id);
+            }
+            finally { _alertLock.Release(); }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Expanded NWS alert poll failed");
         }
     }
 

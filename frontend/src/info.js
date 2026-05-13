@@ -20,8 +20,9 @@ const DEFAULT_HTML =
   `days since rain (4%). Updated hourly. Out-of-state fires never affect the score.` +
   `<br><br>` +
   `<span style="color:var(--text);font-weight:600;">Feed Alerts</span><br>` +
-  `🔥 Fire detected · 😷 Air quality · 🌫️ Smoke · 🚩 Red Flag · 📊 Score change · ` +
-  `🤖 AI query · 📄 Report ingested · 🚨 Critical alert`;
+  `🔥 Fire detected · 😷 Air quality · 🌫️ Smoke · 🚩 Red Flag · ⚡ Fire Weather Watch · ` +
+  `⛔ Fire Warning · 📋 InciWeb incident · 🔥 Active incident · 🚧 Road closure · ` +
+  `📊 Score change · 🤖 AI query · 📄 Report ingested · 🚨 Critical alert`;
 
 const LEGEND_HTML =
   `Risk scores run 0–10. Colors represent: ` +

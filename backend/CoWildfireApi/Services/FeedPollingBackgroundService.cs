@@ -5,6 +5,10 @@ public class FeedPollingBackgroundService : BackgroundService
     private readonly FirmsService _firms;
     private readonly AirNowService _airNow;
     private readonly HmsService _hms;
+    private readonly NoaaService _noaa;
+    private readonly InciwebFeedPoller _inciweb;
+    private readonly NifcIncidentPoller _nifc;
+    private readonly CdotRssPoller _cdot;
     private readonly IConfiguration _config;
     private readonly ILogger<FeedPollingBackgroundService> _logger;
 
@@ -12,14 +16,22 @@ public class FeedPollingBackgroundService : BackgroundService
         FirmsService firms,
         AirNowService airNow,
         HmsService hms,
+        NoaaService noaa,
+        InciwebFeedPoller inciweb,
+        NifcIncidentPoller nifc,
+        CdotRssPoller cdot,
         IConfiguration config,
         ILogger<FeedPollingBackgroundService> logger)
     {
-        _firms  = firms;
-        _airNow = airNow;
-        _hms    = hms;
-        _config = config;
-        _logger = logger;
+        _firms   = firms;
+        _airNow  = airNow;
+        _hms     = hms;
+        _noaa    = noaa;
+        _inciweb = inciweb;
+        _nifc    = nifc;
+        _cdot    = cdot;
+        _config  = config;
+        _logger  = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -37,7 +49,11 @@ public class FeedPollingBackgroundService : BackgroundService
                 await Task.WhenAll(
                     _firms.PollAsync(stoppingToken),
                     _airNow.PollAsync(stoppingToken),
-                    _hms.PollAsync(stoppingToken));
+                    _hms.PollAsync(stoppingToken),
+                    _noaa.PollExpandedAlertsAsync(stoppingToken),
+                    _inciweb.PollAsync(stoppingToken),
+                    _nifc.PollAsync(stoppingToken),
+                    _cdot.PollAsync(stoppingToken));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
