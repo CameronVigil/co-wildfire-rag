@@ -493,6 +493,40 @@ Goal: expand the live feed beyond satellite/weather data to include named incide
 
 ---
 
+## Starting Dev Services
+
+All three services must be running for the app to function locally. Use the provided script from the project root:
+
+```powershell
+.\start-dev.ps1
+```
+
+This script does the following in order:
+1. `docker compose up -d` — starts PostgreSQL/PostGIS and Qdrant containers
+2. Kills any existing `CoWildfireApi` process (so the exe is not locked)
+3. `dotnet build` — rebuilds the backend; aborts if build fails
+4. `dotnet run --no-build` — starts the backend API in a new window (port 5000/5001)
+5. `npm run dev` — starts the Vite frontend dev server in a new window (port 5173)
+
+To start services individually:
+
+```powershell
+# Docker only
+docker compose up -d
+
+# Backend only (kill first if already running)
+Get-Process -Name "CoWildfireApi" -ErrorAction SilentlyContinue | Stop-Process -Force
+cd backend
+dotnet build CoWildfireApi.sln
+dotnet run --project CoWildfireApi\CoWildfireApi.csproj --no-build
+
+# Frontend only
+cd frontend
+npm run dev
+```
+
+---
+
 ## Pre-Development Checklist
 
 ```bash
