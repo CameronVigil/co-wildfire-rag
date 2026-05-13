@@ -15,12 +15,12 @@ export function initSidebar() {
   els = {
     sidebar:       document.getElementById('sidebar'),
     closeBtn:      document.getElementById('sidebar-close-btn'),
-    h3Index:       document.getElementById('cell-h3index'),
-    riskBadge:     document.getElementById('cell-risk-badge'),
-    riskScore:     document.getElementById('cell-risk-score'),
-    firesCount:    document.getElementById('cell-fires-count'),
-    acresBurned:   document.getElementById('cell-acres-burned'),
-    lastFireYear:  document.getElementById('cell-last-fire-year'),
+    h3Index:       document.getElementById('region-h3index'),
+    riskBadge:     document.getElementById('region-risk-badge'),
+    riskScore:     document.getElementById('region-risk-score'),
+    firesCount:    document.getElementById('region-fires-count'),
+    acresBurned:   document.getElementById('region-acres-burned'),
+    lastFireYear:  document.getElementById('region-last-fire-year'),
     windSpeed:     document.getElementById('cond-wind'),
     humidity:      document.getElementById('cond-humidity'),
     fuelMoisture:  document.getElementById('cond-fuel'),
@@ -59,7 +59,7 @@ export function bindSendButton(onSubmit) {
  * Open the sidebar and populate it with cell properties from the GeoJSON feature.
  * Pass null to close the sidebar.
  */
-export function openWithCell(props) {
+export function openWithRegion(props) {
   if (!props) { close(); return; }
 
   _currentH3  = props.h3Index;
@@ -82,7 +82,7 @@ export function openWithCell(props) {
   // Pre-fill question
   if (els.questionInput) {
     els.questionInput.value =
-      `What is the current wildfire risk and what conditions are most dangerous for cell ${props.h3Index}?`;
+      `What is the current wildfire risk and what conditions are most dangerous for region ${props.h3Index}?`;
   }
 
   // Clear previous RAG result
@@ -166,7 +166,7 @@ export function renderAnswer(data) {
 // ── Private helpers ──────────────────────────────────────────────────────────
 
 function clearRagResult() {
-  if (els.ragAnswer)   els.ragAnswer.innerHTML = '<p class="placeholder">Ask a question about this cell to get an AI-powered risk analysis.</p>';
+  if (els.ragAnswer)   els.ragAnswer.innerHTML = '<p class="placeholder">Ask a question about this region to get an AI-powered risk analysis.</p>';
   if (els.sourcesList) els.sourcesList.innerHTML = '';
   if (els.processingMs) els.processingMs.textContent = '';
   if (els.error)       els.error.hidden = true;

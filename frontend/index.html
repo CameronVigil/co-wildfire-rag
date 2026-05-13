@@ -12,15 +12,23 @@
       <div id="map-container">
         <div id="map"></div>
 
+        <!-- Info panel overlay (bottom-right) -->
+        <div id="info-panel" aria-label="About this tool">
+          <p id="info-text">Select an element to learn more.</p>
+        </div>
+
+        <!-- Risk alert badge -->
+        <div id="risk-badge-overlay" aria-label="High risk region count" title="Click to fly to highest-risk region"></div>
+
         <!-- Legend overlay -->
         <div id="legend" aria-label="Risk level legend">
           <h4>Risk Level</h4>
-          <div class="legend-row"><div class="legend-swatch" style="background:#1a7a1a"></div>Very Low</div>
-          <div class="legend-row"><div class="legend-swatch" style="background:#7dc67d"></div>Low</div>
-          <div class="legend-row"><div class="legend-swatch" style="background:#f5e642"></div>Moderate</div>
-          <div class="legend-row"><div class="legend-swatch" style="background:#f5a623"></div>High</div>
-          <div class="legend-row"><div class="legend-swatch" style="background:#d0021b"></div>Very High</div>
-          <div class="legend-row"><div class="legend-swatch" style="background:#7b0000"></div>Extreme</div>
+          <div class="legend-row" data-risk="Very Low" title="Click to highlight Very Low regions"><div class="legend-swatch" style="background:#1a7a1a"></div>Very Low</div>
+          <div class="legend-row" data-risk="Low" title="Click to highlight Low regions"><div class="legend-swatch" style="background:#7dc67d"></div>Low</div>
+          <div class="legend-row" data-risk="Moderate" title="Click to highlight Moderate regions"><div class="legend-swatch" style="background:#f5e642"></div>Moderate</div>
+          <div class="legend-row" data-risk="High" title="Click to highlight High regions"><div class="legend-swatch" style="background:#f5a623"></div>High</div>
+          <div class="legend-row" data-risk="Very High" title="Click to highlight Very High regions"><div class="legend-swatch" style="background:#d0021b"></div>Very High</div>
+          <div class="legend-row" data-risk="Extreme" title="Click to highlight Extreme regions"><div class="legend-swatch" style="background:#7b0000"></div>Extreme</div>
           <div class="legend-row"><div class="legend-swatch" style="background:#444"></div>Not scored</div>
         </div>
       </div>
@@ -42,35 +50,35 @@
     </div><!-- /#app -->
 
     <!-- ── Sidebar (bottom drawer) ────────────────────────────────────────── -->
-    <aside id="sidebar" aria-label="Cell risk details and query panel">
+    <aside id="sidebar" aria-label="Region risk details and query panel">
 
-      <!-- Sidebar header: cell identity + risk badge -->
+      <!-- Sidebar header: region identity + risk badge -->
       <div id="sidebar-header">
-        <h2>Cell Analysis</h2>
-        <code id="cell-h3index">—</code>
-        <span id="cell-risk-badge">Unknown</span>
-        <span id="cell-risk-score">—</span>
+        <h2>Region Analysis</h2>
+        <code id="region-h3index">—</code>
+        <span id="region-risk-badge">Unknown</span>
+        <span id="region-risk-score">—</span>
         <button id="sidebar-close-btn" aria-label="Close panel">✕</button>
       </div>
 
       <div id="sidebar-body">
 
-        <!-- Left column: cell stats + conditions -->
-        <div id="sidebar-cell-info">
+        <!-- Left column: region stats + conditions -->
+        <div id="sidebar-region-info">
 
           <div class="info-section" id="stats-section">
             <h3>Fire History</h3>
             <div class="info-row">
               <span class="info-label">Fires (20 yr)</span>
-              <span class="info-value" id="cell-fires-count">—</span>
+              <span class="info-value" id="region-fires-count">—</span>
             </div>
             <div class="info-row">
               <span class="info-label">Acres burned</span>
-              <span class="info-value" id="cell-acres-burned">—</span>
+              <span class="info-value" id="region-acres-burned">—</span>
             </div>
             <div class="info-row">
               <span class="info-label">Last fire year</span>
-              <span class="info-value" id="cell-last-fire-year">—</span>
+              <span class="info-value" id="region-last-fire-year">—</span>
             </div>
           </div>
 
@@ -102,7 +110,7 @@
             <input
               type="text"
               id="question-input"
-              placeholder="Ask about this cell's fire risk…"
+              placeholder="Ask about this region's fire risk…"
               aria-label="Wildfire risk question"
             />
             <button id="send-btn" type="button">Ask AI</button>
@@ -114,7 +122,7 @@
             </div>
             <div id="rag-error" hidden></div>
             <div id="rag-answer">
-              <p class="placeholder">Click a cell on the map, then ask a question to get an AI-powered risk analysis.</p>
+              <p class="placeholder">Click a region on the map, then ask a question to get an AI-powered risk analysis.</p>
             </div>
             <ul id="sources-list" aria-label="Source documents"></ul>
             <div id="processing-ms"></div>
