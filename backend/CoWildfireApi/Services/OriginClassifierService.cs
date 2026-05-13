@@ -11,13 +11,30 @@ namespace CoWildfireApi.Services;
 /// Colorado's actual rectangular bounds (four corners + survey lines).
 /// Out-of-state fires are published to the feed but do not affect cell risk scores.
 /// </summary>
-public class OriginClassifierService
+public class OriginClassifierService : IOriginClassifierService
 {
     // Colorado state boundary (approximate rectangle — matches survey lines)
     private const double CoW = -109.0448;
     private const double CoE = -102.0417;
     private const double CoS =  36.9925;
     private const double CoN =  41.0006;
+
+    private const double SmokeTransportMinFrpMw = 10.0;
+
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly ILogger<OriginClassifierService> _logger;
+    private readonly SemaphoreSlim _loadLock = new(1, 1);
+    private List<CachedState>? _states;
+    private Geometry? _coloradoBoundary;
+    private Geometry? _coloradoBorderBuffer;
+
+    public OriginClassifierService(
+        IDbContextFactory<AppDbContext> dbFactory,
+        ILogger<OriginClassifierService> logger)
+    {
+        _dbFactory = dbFactory;
+        _logger    = logger;
+    }
 
     public bool IsInColorado(double lat, double lon)
         => lat >= CoS && lat <= CoN && lon >= CoW && lon <= CoE;

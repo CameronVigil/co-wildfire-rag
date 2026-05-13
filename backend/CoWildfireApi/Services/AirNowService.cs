@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using CoWildfireApi.Data;
 using CoWildfireApi.Models;
 using Polly;
 using Polly.Retry;
@@ -52,8 +51,6 @@ public class AirNowService
         .Build();
 
     public AirNowService(
-        IDbContextFactory<AppDbContext> dbFactory,
-        FeedService feed,
         IHttpClientFactory httpFactory,
         FeedService feed,
         IConfiguration config,
@@ -90,17 +87,13 @@ public class AirNowService
 
             string categoryName = GetCategoryName(o.Aqi);
 
-            _feed.Publish(new FeedItem(
-                Id:         key,
-                EventType:  "air-quality",
-                Severity:   sev,
-                Title:      $"Air Quality — {o.ReportingArea}",
-                Detail:     $"{o.ParameterName} · AQI {o.Aqi} ({categoryName})",
-                Lat:        o.Latitude,
-                Lon:        o.Longitude,
-                H3Index:    null,
-                InColorado: o.StateCode == "CO",
-                DetectedAt: DateTimeOffset.UtcNow));
+            _feed.Publish(new LiveFeedEvent
+            {
+                Type     = "air-quality",
+                Severity = sev,
+                Source   = "AirNow",
+                Detail   = $"{o.ParameterName} · AQI {o.Aqi} ({categoryName}) — {o.ReportingArea}",
+            });
 
             published++;
         }
@@ -109,9 +102,7 @@ public class AirNowService
 
         if (published > 0)
             _logger.LogInformation("AirNow: {Published} elevated AQI events published", published);
-                }
-                finally { sem.Release(); }
-            }).ToList();
+    }
 
     // ── Internal ──────────────────────────────────────────────────────────────
 

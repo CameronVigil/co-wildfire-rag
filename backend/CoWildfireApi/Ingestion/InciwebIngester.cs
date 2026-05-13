@@ -122,10 +122,11 @@ public class InciwebIngester
 
                 await _feed.PublishAsync(new Models.LiveFeedEvent
                 {
-                    Type     = "report_ingested",
-                    Severity = "info",
-                    Source   = "InciWeb",
-                    Detail   = $"Ingested '{incident.Title}' ({chunksUpserted} chunks)",
+                    Type      = "report_ingested",
+                    Severity  = "info",
+                    Source    = "InciWeb",
+                    Detail    = $"Ingested '{incident.Title}' ({chunksUpserted} chunks)",
+                    SourceUrl = incident.Url,
                 }, ct);
             }
             catch (OperationCanceledException) { throw; }

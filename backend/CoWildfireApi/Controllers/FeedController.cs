@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using CoWildfireApi.Models;
 using CoWildfireApi.Services;
@@ -23,7 +22,6 @@ public class FeedController : ControllerBase
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(30);
 
     private readonly FeedService _feed;
-    private readonly ILogger<FeedController> _logger;
 
     public FeedController(FeedService feed) => _feed = feed;
 
@@ -32,44 +30,54 @@ public class FeedController : ControllerBase
 
     [HttpGet]
     public async Task StreamAsync(CancellationToken ct)
-        {
+    {
         Response.Headers.Append("Content-Type", "text/event-stream");
         Response.Headers.Append("Cache-Control", "no-cache");
         Response.Headers.Append("X-Accel-Buffering", "no");
 
         var reader = _feed.Subscribe();
-            try
-            {
+        try
+        {
             foreach (var item in _feed.RecentEvents)
                 await WriteEventAsync(item, ct);
 
-            await foreach (var item in reader.ReadAllAsync(ct))
-                await WriteEventAsync(item, ct);
-            }
-            catch (OperationCanceledException) { }
-        }, heartbeatCts.Token);
+            using var timer = new PeriodicTimer(HeartbeatInterval);
+            var timerTask  = timer.WaitForNextTickAsync(ct).AsTask();
+            var readerTask = reader.WaitToReadAsync(ct).AsTask();
 
-        try
-        {
-            await foreach (var evt in reader.ReadAllAsync(ct))
+            while (!ct.IsCancellationRequested)
             {
-                await WriteEventAsync(evt, ct);
+                var winner = await Task.WhenAny(timerTask, readerTask);
+
+                if (winner == timerTask)
+                {
+                    await timerTask;
+                    var hbJson = JsonSerializer.Serialize(
+                        new { type = "heartbeat", timestamp = DateTimeOffset.UtcNow }, _json);
+                    await Response.WriteAsync($"event: heartbeat\ndata: {hbJson}\n\n", ct);
+                    await Response.Body.FlushAsync(ct);
+                    timerTask = timer.WaitForNextTickAsync(ct).AsTask();
+                }
+                else
+                {
+                    if (!await readerTask) break;
+                    while (reader.TryRead(out var item))
+                        await WriteEventAsync(item, ct);
+                    readerTask = reader.WaitToReadAsync(ct).AsTask();
+                }
             }
         }
-        catch (OperationCanceledException)
-        {
-            _logger.LogDebug("SSE client disconnected");
-        }
+        catch (OperationCanceledException) { }
         finally
         {
             _feed.Unsubscribe(reader);
         }
     }
 
-    private async Task WriteEventAsync(FeedItem item, CancellationToken ct)
+    private async Task WriteEventAsync(LiveFeedEvent item, CancellationToken ct)
     {
         var json = JsonSerializer.Serialize(item, _json);
-        await Response.WriteAsync($"data: {json}\n\n", ct);
+        await Response.WriteAsync($"event: {item.Type}\ndata: {json}\n\n", ct);
         await Response.Body.FlushAsync(ct);
     }
 }

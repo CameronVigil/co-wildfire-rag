@@ -29,6 +29,7 @@ public class NoaaService
 {
     private readonly HttpClient _http;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly FeedService _feed;
     private readonly ILogger<NoaaService> _logger;
 
     // Grid point URL cache (permanent per lat/lon) — keyed by h3Index
@@ -63,11 +64,13 @@ public class NoaaService
     public NoaaService(
         IHttpClientFactory httpFactory,
         IDbContextFactory<AppDbContext> dbFactory,
+        FeedService feed,
         ILogger<NoaaService> logger)
     {
-        _http     = httpFactory.CreateClient("noaa");
+        _http      = httpFactory.CreateClient("noaa");
         _dbFactory = dbFactory;
-        _logger   = logger;
+        _feed      = feed;
+        _logger    = logger;
     }
 
     /// <summary>
@@ -263,10 +266,11 @@ public class NoaaService
             {
                 await _feed.PublishAsync(new Models.LiveFeedEvent
                 {
-                    Type     = "alert",
-                    Severity = "critical",
-                    Source   = "NOAA",
-                    Detail   = $"Red Flag Warning active in Colorado ({count} zones)",
+                    Type      = "alert",
+                    Severity  = "critical",
+                    Source    = "NOAA",
+                    Detail    = $"Red Flag Warning active in Colorado ({count} zones)",
+                    SourceUrl = "https://www.weather.gov/alerts/co",
                 }, ct);
             }
 

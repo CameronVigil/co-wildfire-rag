@@ -67,10 +67,6 @@ try
     builder.Services.AddSingleton<NoaaService>();
     builder.Services.AddSingleton<RawsService>();
     builder.Services.AddSingleton<DroughtService>();
-
-    // Singletons: hold in-memory state (dedup sets, caches, SSE channels)
-    builder.Services.AddSingleton<FeedService>();
-    builder.Services.AddSingleton<OriginClassifierService>();
     builder.Services.AddSingleton<FirmsService>();
     builder.Services.AddSingleton<AirNowService>();
     builder.Services.AddSingleton<HmsService>();

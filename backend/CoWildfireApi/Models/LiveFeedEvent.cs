@@ -43,4 +43,8 @@ public record LiveFeedEvent
     [JsonPropertyName("impactedCounties")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string[]? ImpactedCounties { get; init; }
+
+    [JsonPropertyName("sourceUrl")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceUrl { get; init; }
 }

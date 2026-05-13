@@ -26,7 +26,7 @@ public class FirmsService
     private const string BaseUrl = "https://firms.modaps.eosdis.nasa.gov/api/area/csv";
 
     private readonly HttpClient _http;
-    private readonly OriginClassifierService _origin;
+    private readonly IOriginClassifierService _origin;
     private readonly FeedService _feed;
     private readonly IConfiguration _config;
     private readonly ILogger<FirmsService> _logger;
@@ -48,7 +48,7 @@ public class FirmsService
 
     public FirmsService(
         IHttpClientFactory httpFactory,
-        OriginClassifierService origin,
+        IOriginClassifierService origin,
         FeedService feed,
         IConfiguration config,
         ILogger<FirmsService> logger)
@@ -102,17 +102,13 @@ public class FirmsService
 
             string region = _origin.GetRegionLabel(d.Latitude, d.Longitude);
 
-            _feed.Publish(new FeedItem(
-                Id:         id,
-                EventType:  "fire-detection",
-                Severity:   sev,
-                Title:      $"Fire Detected — {region}",
-                Detail:     $"VIIRS SNPP · {d.Satellite} · FRP {d.Frp:F1} MW · {d.Confidence} confidence",
-                Lat:        d.Latitude,
-                Lon:        d.Longitude,
-                H3Index:    null,
-                InColorado: inCo,
-                DetectedAt: ParseAcqTime(d.AcqDate, d.AcqTime)));
+            _feed.Publish(new LiveFeedEvent
+            {
+                Type     = "fire-detection",
+                Severity = sev,
+                Source   = "NASA FIRMS",
+                Detail   = $"VIIRS SNPP · {d.Satellite} · FRP {d.Frp:F1} MW · {d.Confidence} confidence — {region}",
+            });
 
             published++;
         }

@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using CoWildfireApi.Models;
-using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Features;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
@@ -30,7 +29,7 @@ public class HmsService
         NetTopologySuite.NtsGeometryServices.Instance.CreateGeometryFactory(srid: 4326);
 
     private readonly HttpClient _http;
-    private readonly OriginClassifierService _origin;
+    private readonly IOriginClassifierService _origin;
     private readonly FeedService _feed;
     private readonly IConfiguration _config;
     private readonly ILogger<HmsService> _logger;
@@ -51,11 +50,8 @@ public class HmsService
         .Build();
 
     public HmsService(
-        IDbContextFactory<AppDbContext> dbFactory,
-        IOriginClassifierService classifier,
-        FeedService feed,
         IHttpClientFactory httpFactory,
-        OriginClassifierService origin,
+        IOriginClassifierService origin,
         FeedService feed,
         IConfiguration config,
         ILogger<HmsService> logger)
@@ -199,17 +195,13 @@ public class HmsService
             bool inCo   = _origin.IsInColorado(lat, lon);
             string where = inCo ? "Colorado" : _origin.GetRegionLabel(lat, lon);
 
-            _feed.Publish(new FeedItem(
-                Id:         id,
-                EventType:  "smoke-alert",
-                Severity:   severity,
-                Title:      $"Smoke Plume — {density} Density",
-                Detail:     $"HMS · {dateStr} · {where}",
-                Lat:        lat,
-                Lon:        lon,
-                H3Index:    null,
-                InColorado: inCo,
-                DetectedAt: DateTimeOffset.UtcNow));
+            _feed.Publish(new LiveFeedEvent
+            {
+                Type     = "smoke-alert",
+                Severity = severity,
+                Source   = "NOAA HMS",
+                Detail   = $"HMS · {dateStr} · {density} density · {where}",
+            });
 
             published++;
     }
