@@ -47,6 +47,8 @@
 | 6 | **Complete** | HMS smoke, county borders, origin classifier refactor |
 | 7 | **Complete** | Map detail, terrain, risk highlighting, UX polish |
 | 8 | Not Started | Cloud migration (Azure + Claude) |
+| 9 | Planned | Live feed enrichment (expanded NWS alerts, InciWeb incident tracking, NIFC/WFIGS, CDOT closures) |
+| 10 | Planned | High-risk region intelligence (live news, satellite upgrade, lightning, scanner transcription) |
 
 ---
 
@@ -483,6 +485,140 @@ Goal: expand the live feed beyond satellite/weather data to include named incide
 - Emit as `road-closure` feed events; frontend: `🚧 Road Closure` card type
 - Useful for residents needing evacuation route awareness
 
+### Phase 10 — High-Risk Region Intelligence (Planned)
+
+Goal: when any H3 cell crosses score >= 6.0 (High), it enters an active monitoring state. Every data source — plus several new ones — begins filtering specifically for that cell's geographic footprint. The frontend surfaces these not as generic feed cards but as spatially grounded, urgent alerts tied directly to the map. Free sources are prioritized first.
+
+#### Trigger Condition
+A cell is "actively monitored" when `current_risk_score >= 6.0`. All new event types below tag `h3Index` and `county` so the frontend can link alerts directly to map cells.
+
+---
+
+#### 10a — Quick Wins (Free, ~2–3 days)
+
+**Backend — new pollers (all follow the `InciwebFeedPoller` / `CdotRssPoller` pattern):**
+
+**`NewsRssPoller`** — configurable list of fire-focused RSS feeds; emits `news-article` events
+- Colorado Sun wildfire feed: `https://coloradosun.com/category/wildfire/feed/`
+- Denver Post wildfire feed: `https://www.denverpost.com/wildfire/feed/`
+- Colorado State Forest Service: `https://csfs.colostate.edu/feed/`
+- USFS forest unit feeds (Arapaho-Roosevelt, Pike-San Isabel, White River, GMUG) — check per-forest RSS URLs
+- Keyword filter: fire/wildfire/evacuation/closure; dedup by GUID; emit `severity = "info"` unless headline contains evacuation/structure-threatened → `"warning"`
+
+**`ColoradoCountyOesPoller`** — county Office of Emergency Services RSS feeds; emits `evacuation-alert` (severity: critical)
+- Jefferson County: `https://www.jeffco.us/rss.aspx?feed=news`
+- Larimer County: `https://www.larimer.gov/rss/news`
+- El Paso County: `https://www.elpasoco.com/news/feed/`
+- Arapahoe County: `https://www.arapahoegov.com/rss.aspx?RSID=26`
+- Filter for evacuation/fire keywords; escalate to `severity = "critical"`
+
+**`NwsSpotForecastPoller`** — polls each CO Weather Forecast Office for Fire Weather Statements (FWS); emits `spot-forecast`
+- Endpoint: `GET https://api.weather.gov/products?type=FWS&location={wfo}` for BOU, PUB, GJT, CYS
+- A spot forecast being issued is near-definitive confirmation that an active IMT is managing a fire
+- Parse product text for coordinates ("LOCATION...XX.XX N XXX.XX W"), reverse-geocode to H3 cell using `H3GridService`
+- Dedup by product ID; emit with fire name and WFO as `source`
+
+**`Colorado511Poller`** — CoTrip structured road incident API; emits `road-closure`
+- API: `https://cotrip.org/api/v2/incidents?format=json` (free, registration required)
+- Returns GeoJSON with incident type and lat/lon — far better than CDOT RSS because it includes coordinates
+- H3-index each incident point to associate it with a specific cell
+- Filter by incident types: fire, smoke, evacuation
+
+**`RawsAlertPoller`** — extend existing `RawsService`; emits `raws-alert`
+- Scope to only the RAWS stations nearest to cells scoring >= 6.0
+- Compare each reading against the previous observation (stored in `_known` dict, same pattern as other pollers)
+- If wind speed jumped > 15 mph OR relative humidity dropped > 10 percentage points: emit `severity = "warning"`
+- If both thresholds crossed simultaneously: emit `severity = "critical"`
+- Latency: 2–5 minutes from physical measurement to feed event
+
+**Backend — extend existing services:**
+- `RiskScoringService` — on score update, publish `risk_score` event whenever a cell crosses a category boundary (6.0, 8.0, 9.0) with `h3Index` tagged; currently this event is not emitted
+- `FeedPollingBackgroundService` — inject and register all new pollers above
+
+**New endpoint:**
+- `GET /api/feed/recent?h3Index={idx}&limit=10` — returns the last N feed events tagged to a specific H3 cell; powers the new sidebar section
+
+**New event types to register in `feed.js`:**
+`news-article`, `evacuation-alert`, `spot-forecast`, `road-closure` (upgraded from CDOT RSS), `raws-alert`
+
+**Frontend — 6 UX changes (all in this sprint):**
+
+1. **Pinned alert banner** — `<div id="alert-banner">` above `#feed-cards`. When a `critical` event arrives with `h3Index` set, render it into the banner (not the card list) with a "Fly to region" button calling `map.flyTo()` to the cell center. Auto-dismisses after 60 seconds. Multiple alerts stack vertically.
+
+2. **Map pulse on critical H3 cell** — when a critical event with `h3Index` arrives, add a pulsing circle layer at that cell's center in MapLibre GL. Implemented as a `circle` paint layer with `setInterval` opacity cycling (same pattern as the existing Extreme pulse in `riskGrid.js`). Auto-removes after 5 minutes.
+
+3. **H3-linked sidebar section** — when the user clicks a cell scoring >= 6, add a "Recent alerts for this region" section above the RAG input. Fetches from `GET /api/feed/recent?h3Index={idx}&limit=5`. Shows the last 5 events for that specific cell with timestamp and severity.
+
+4. **Browser notifications** (opt-in) — `new Notification("Active Fire Alert", { body: event.detail })` on the first `critical` event per session. Request permission on page load; store grant in `localStorage`. Only fires once per event (dedup by event ID).
+
+5. **Sound alert** (opt-in) — a single short audio tone on `critical` events. Gated behind a speaker-icon toggle in the feed header; default off; stored in `localStorage`.
+
+6. **Severity filter pills** — replace current filter buttons with "All | Warning | Critical" pills above `#feed-cards`. "Critical" view hides `data-severity="info"` cards. Lets users silence routine data-fetch noise during an active event.
+
+---
+
+#### 10b — Satellite Upgrade (Free, GOES-East S3, ~3–5 days)
+
+**`GoesFireDetectionService`** — GOES-East ABI FDC (Fire/Hot Spot Characterization); emits `goes-fire-detection`
+- Source: public AWS S3 bucket `s3://noaa-goes16/ABI-L2-FDCC/` — no API key, no cost
+- Cadence: every 5 minutes (vs. FIRMS VIIRS at ~15-minute orbital repeat for Colorado)
+- List the latest file in the S3 prefix via HTTP GET (`https://noaa-goes16.s3.amazonaws.com/?list-type=2&prefix=ABI-L2-FDCC/{year}/{day}/`)
+- Download the latest `.nc` file (~2–5 MB); parse with `NetCDF.NET` NuGet package
+- Variables: `Mask` (fire classification: 10 = processed fire, 30 = saturated), `Power` (FRP in MW), `Area` (km²), plus geostationary projection variables
+- Convert pixel indices to lat/lon using GOES-R geostationary projection formula (GOES-R PUG Vol 5)
+- Filter to Colorado bounding box; H3-index each fire pixel; emit with FRP-based severity thresholds
+- Tag `h3Index` so frontend can pulse the cell on the map
+
+**`GoesLightningService`** — GOES-East GLM (Geostationary Lightning Mapper); emits `lightning-strike`
+- Source: same S3 infrastructure — `s3://noaa-goes16/GLM-L2-LCFA/` — free
+- Cadence: 60-second file cadence; poll every 60 seconds
+- Parse flash group lat/lon from NetCDF; filter to Colorado bbox; H3-index each flash
+- Trigger logic: if >= 3 flashes hit the same cell within a 10-minute window AND `current_risk_score >= 6.0` → emit `severity = "warning"` lightning alert
+- Escalation: if a FIRMS or GOES FDC fire detection appears in the same cell within 30 minutes of a lightning cluster → escalate to `severity = "critical"` with cross-reference to the lightning event
+
+> **Note:** Both GOES services share the same NetCDF parsing and geostationary projection infrastructure. Build them together. The projection math is fixed for GOES-East perspective and can be hardcoded as a utility class.
+
+---
+
+#### 10c — Social Layer (Free, ~1–2 days)
+
+**`RedditFirePoller`** — Reddit JSON API (no auth required); emits `social-report`
+- Endpoints:
+  - `https://www.reddit.com/r/ColoradoWildfire/new.json?limit=25` — dedicated fire subreddit
+  - `https://www.reddit.com/search.json?q=wildfire+colorado&sort=new&t=hour` — cross-subreddit
+- Headers: `User-Agent: CoWildfireApp/1.0` (required by Reddit)
+- Rate limit: 1 req/2s for unauthenticated; poll every 3 minutes; well within limits
+- Filter: posts created within last 30 minutes; title/selftext matches fire keywords; score >= 2 (reduces noise)
+- Gate: only fetch when at least one H3 cell scores >= 6.0 (avoids wasted calls during quiet periods)
+- Attempt location extraction from post text (city/highway/landmark mentions) to populate `county`
+- Dedup by post ID; max 500 entries; emit `severity = "info"` (crowdsourced, unverified)
+
+---
+
+#### 10d — Paid Sources (Deferred — evaluate after 10a/10b/10c are stable)
+
+| Source | What it provides | Cost | Notes |
+|---|---|---|---|
+| **X API filtered stream** | Real-time tweets from @COEmergency, @CSFS, county sheriffs; eyewitness reports | $100/mo | Persistent HTTP chunked stream; official accounts elevated to `severity = "critical"` |
+| **Broadcastify + Whisper transcription** | Public-safety scanner audio → transcribed dispatch calls naming exact intersections | $30/yr (Broadcastify) + Whisper API | Highest information value; buffer MP3 stream in 30s chunks, POST to Whisper, keyword-filter transcript, emit `scanner-report` events |
+
+---
+
+#### 10 — Summary: New Event Types
+
+| Type | Source | Severity | Notes |
+|---|---|---|---|
+| `news-article` | NewsRssPoller | info / warning | Breaking news; warning if evacuation keyword in headline |
+| `evacuation-alert` | ColoradoCountyOesPoller | critical | County OES RSS; highest-priority event type |
+| `spot-forecast` | NwsSpotForecastPoller | warning | Issued only when IMT is managing an active fire |
+| `raws-alert` | RawsAlertPoller | warning / critical | Sudden wind spike or RH drop on a high-risk cell |
+| `goes-fire-detection` | GoesFireDetectionService | warning / critical | 5-min satellite refresh; FRP-based severity |
+| `lightning-strike` | GoesLightningService | warning / critical | Flash cluster on high-risk cell; escalates on co-detection |
+| `social-report` | RedditFirePoller | info | Crowdsourced; unverified; county-tagged when location parseable |
+| `scanner-report` | Broadcastify (Phase 10d) | warning / critical | Transcribed dispatch audio; highest latency value |
+
+---
+
 ### Phase 8 — Cloud Migration
 - [ ] Swap Ollama for Claude API via Semantic Kernel connector
 - [ ] Migrate to Azure Database for PostgreSQL
@@ -581,6 +717,9 @@ Data downloads needed:
 | Tier | Monthly Cost |
 |---|---|
 | Local development (current) | $0 |
+| Phase 10a/10b/10c (all free sources) | $0 — GOES S3, Reddit, RSS, NWS, CoTrip all free |
+| Phase 10d — X API filtered stream | +$100/mo |
+| Phase 10d — Broadcastify + Whisper | +~$5–15/mo (Whisper API usage-based) |
 | VPS hosted + local LLM | ~$12–20 |
 | Azure hosted + Claude API | ~$30–50 |
 
@@ -603,6 +742,15 @@ Data downloads needed:
 | AirNow free tier: ~500 req/hour | Cache per H3-6 cell for 1 hour; do not query per H3-8 cell |
 | SSE holds one HTTP connection per browser tab | Server-side idle timeout (5 min); frontend `EventSource` reconnects automatically |
 | Out-of-state smoke can still lower visibility near fires | Document in tooltips: risk score = ignition risk, not air quality |
+| GOES NetCDF files use geostationary projection (not lat/lon) | Must apply GOES-R PUG Vol 5 projection formula to convert pixel indices to WGS84; hardcode GOES-East satellite longitude (-75.0°) |
+| GOES S3 file listing returns all files for the day | Always sort by filename (timestamp is embedded) and take only the most recent; do not download historical files on each poll |
+| Reddit unauthenticated rate limit: 1 req/2s | Never poll faster than every 3 minutes; add `User-Agent: CoWildfireApp/1.0` or Reddit will block requests |
+| County OES RSS feeds are inconsistently maintained | Wrap each feed in try/catch; a failed feed should not block the others; log the failure to `ingestion_log` |
+| NWS FWS product text format is unstructured | Parse coordinates with a regex; if parsing fails, emit the event without `h3Index` rather than dropping it entirely |
+| CoTrip 511 API requires free registration | Register at `https://data.cotrip.org/` for an API key; store in `appsettings.json` under `Colorado511:ApiKey` |
+| Broadcastify MP3 streams require Premium account for stream key access | Do not attempt to scrape stream keys without a paid account; use RadioReference API as alternative source |
+| RAWS alert thresholds will fire frequently during active weather events | Add a per-cell cooldown (e.g., 30 minutes between alerts for the same cell) to prevent alert fatigue |
+| Browser Notification API requires HTTPS in production | Works on localhost; ensure HTTPS is configured before Phase 8 cloud deployment |
 
 ---
 
