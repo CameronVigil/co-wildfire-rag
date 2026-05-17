@@ -1,6 +1,7 @@
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { RISK_COLORS, RISK_COLOR_UNKNOWN } from './config.js';
+import { fetchRecentAlerts } from './api.js';
 
 // Configure marked for safe rendering
 marked.setOptions({ breaks: true, gfm: true });
@@ -85,8 +86,14 @@ export function openWithRegion(props) {
       `What is the current wildfire risk and what conditions are most dangerous for region ${props.h3Index}?`;
   }
 
-  // Clear previous RAG result
+  // Clear previous RAG result and region alerts
   clearRagResult();
+  clearRegionAlerts();
+
+  // Load recent alerts for high-risk regions (score >= 6.0)
+  if (props.riskScore != null && Number(props.riskScore) >= 6.0) {
+    loadRegionAlerts(props.h3Index);
+  }
 
   // Open
   els.sidebar?.classList.add('open');
@@ -96,6 +103,50 @@ export function openWithRegion(props) {
 export function close() {
   els.sidebar?.classList.remove('open');
   _currentH3 = null;
+  clearRegionAlerts();
+}
+
+// ── Region alerts ─────────────────────────────────────────────────────────────
+
+async function loadRegionAlerts(h3Index) {
+  const section = document.getElementById('region-alerts');
+  const list    = document.getElementById('region-alerts-list');
+  if (!section || !list) return;
+
+  try {
+    const events = await fetchRecentAlerts(h3Index, 5);
+    if (!Array.isArray(events) || events.length === 0) return;
+
+    list.innerHTML = '';
+    events.slice().reverse().forEach(item => {
+      const li = document.createElement('li');
+      li.className = 'region-alert-item';
+      li.dataset.severity = item.severity;
+
+      const time = new Date(item.timestamp)
+        .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const label = escHtml(item.source ?? item.type);
+      const detail = escHtml(item.detail);
+
+      li.innerHTML =
+        `<span class="region-alert-time">${time}</span>` +
+        `<span class="region-alert-label">${label}</span>` +
+        `<span class="region-alert-detail">${detail}</span>`;
+
+      list.appendChild(li);
+    });
+
+    section.hidden = false;
+  } catch {
+    // Silently skip if feed/recent endpoint is unavailable
+  }
+}
+
+function clearRegionAlerts() {
+  const section = document.getElementById('region-alerts');
+  const list    = document.getElementById('region-alerts-list');
+  if (section) section.hidden = true;
+  if (list)    list.innerHTML = '';
 }
 
 export function showLoading(on) {

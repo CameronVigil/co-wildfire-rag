@@ -146,7 +146,8 @@ public class RiskScoringService
             urlFetchTasks.Count, cells.Count);
 
         // ── Phase 3: score and persist ────────────────────────────────────────────
-        var historyBatch = new List<H3RiskHistory>(cells.Count);
+        var historyBatch   = new List<H3RiskHistory>(cells.Count);
+        var boundaryEvents = new List<Models.LiveFeedEvent>();
         int scored = 0, skipped = 0;
 
         for (int i = 0; i < cells.Count; i++)
@@ -204,6 +205,29 @@ public class RiskScoringService
 
             string category = GetRiskCategory(score);
 
+            // Emit per-cell event when score crosses High/Very High/Extreme thresholds upward.
+            // Only fires when the cell has a prior score (skips first scoring run on null cells).
+            if (cell.CurrentRiskScore.HasValue)
+            {
+                decimal prev = cell.CurrentRiskScore.Value;
+                string? escalatedTo = null;
+                string? evtSeverity = null;
+
+                if      (score >= 9.0m && prev < 9.0m) { escalatedTo = "Extreme";   evtSeverity = "critical"; }
+                else if (score >= 8.0m && prev < 8.0m) { escalatedTo = "Very High"; evtSeverity = "warning";  }
+                else if (score >= 6.0m && prev < 6.0m) { escalatedTo = "High";      evtSeverity = "warning";  }
+
+                if (escalatedTo != null)
+                    boundaryEvents.Add(new Models.LiveFeedEvent
+                    {
+                        Type     = "risk_score",
+                        Severity = evtSeverity!,
+                        Source   = "RiskScoringService",
+                        Detail   = $"Region {cell.H3Index} escalated to {escalatedTo} risk ({score:F1}/10)",
+                        H3Index  = cell.H3Index,
+                    });
+            }
+
             // Update cell — EF change tracker generates the UPDATE statements
             cell.CurrentRiskScore        = score;
             cell.RiskScoreUpdatedAt      = DateTimeOffset.UtcNow;
@@ -239,6 +263,9 @@ public class RiskScoringService
         // Single SaveChanges: UPDATEs for h3_cells + INSERTs for h3_risk_history
         db.H3RiskHistory.AddRange(historyBatch);
         await db.SaveChangesAsync(ct);
+
+        foreach (var evt in boundaryEvents)
+            await _feed.PublishAsync(evt, ct);
 
         sw.Stop();
         _logger.LogInformation(

@@ -72,3 +72,13 @@ export async function postQuery(question, h3Index = null, location = null, resol
 export async function triggerIngest() {
   return apiFetch('/api/query/ingest', { method: 'POST' });
 }
+
+/**
+ * GET /api/feed/recent?h3Index=&limit=
+ * Returns the most recent feed events optionally filtered to a specific H3 cell.
+ */
+export async function fetchRecentAlerts(h3Index, limit = 5) {
+  const params = new URLSearchParams({ limit });
+  if (h3Index) params.set('h3Index', h3Index);
+  return apiFetch(`/api/feed/recent?${params}`);
+}

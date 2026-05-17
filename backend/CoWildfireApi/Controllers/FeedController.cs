@@ -26,7 +26,10 @@ public class FeedController : ControllerBase
     public FeedController(FeedService feed) => _feed = feed;
 
     [HttpGet("recent")]
-    public IActionResult GetRecent() => Ok(_feed.RecentEvents);
+    public IActionResult GetRecent(
+        [FromQuery] string? h3Index = null,
+        [FromQuery] int limit = 20)
+        => Ok(_feed.GetRecent(h3Index, Math.Clamp(limit, 1, 100)));
 
     [HttpGet]
     public async Task StreamAsync(CancellationToken ct)

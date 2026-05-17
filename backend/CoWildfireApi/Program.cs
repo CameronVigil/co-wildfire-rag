@@ -73,6 +73,10 @@ try
     builder.Services.AddSingleton<InciwebFeedPoller>();
     builder.Services.AddSingleton<NifcIncidentPoller>();
     builder.Services.AddSingleton<CdotRssPoller>();
+    builder.Services.AddSingleton<NewsRssPoller>();
+    builder.Services.AddSingleton<ColoradoCountyOesPoller>();
+    builder.Services.AddSingleton<NwsSpotForecastPoller>();
+    builder.Services.AddSingleton<RawsAlertPoller>();
 
     // Scoped / transient: use IDbContextFactory; resolved fresh per scoring run
     builder.Services.AddScoped<H3GridService>();

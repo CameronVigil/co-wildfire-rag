@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using CoWildfireApi.Models;
 
@@ -33,12 +34,16 @@ public class CdotRssPoller
         _logger = logger;
     }
 
+    // Escape bare & that aren't valid XML entity references so malformed RSS feeds don't crash the parser.
+    private static string SanitizeXml(string xml) =>
+        Regex.Replace(xml, @"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)", "&amp;");
+
     public async Task PollAsync(CancellationToken ct = default)
     {
         try
         {
             var xml = await _http.GetStringAsync(FeedUrl, ct);
-            var doc = XDocument.Parse(xml);
+            var doc = XDocument.Parse(SanitizeXml(xml));
 
             var items = doc.Root?
                 .Element("channel")?

@@ -44,7 +44,11 @@ public class NifcIncidentPoller
         try
         {
             var json = await _http.GetFromJsonAsync<JsonElement>(QueryUrl, ct);
-            var features = json.GetProperty("features");
+            if (!json.TryGetProperty("features", out var features))
+            {
+                _logger.LogDebug("NIFC response had no 'features' property — possible API error");
+                return;
+            }
 
             for (int i = 0; i < features.GetArrayLength(); i++)
             {

@@ -522,6 +522,159 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   flex-shrink: 0;
 }
 
+/* ── Feed sound toggle ────────────────────────────────────────────────────── */
+#feed-sound-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+#feed-sound-btn:hover { opacity: 1; }
+
+/* ── Severity filter pills ────────────────────────────────────────────────── */
+#feed-filters {
+  display: flex;
+  gap: 5px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.feed-filter-pill {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 10px;
+  transition: background 0.12s, color 0.12s;
+}
+.feed-filter-pill:hover { background: var(--surface-2); color: var(--text); }
+.feed-filter-pill.active {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: #4a90d9;
+}
+
+/* ── Alert banner ─────────────────────────────────────────────────────────── */
+#alert-banner {
+  flex-shrink: 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.alert-banner-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(180, 0, 0, 0.18);
+  border-bottom: 1px solid rgba(180, 0, 0, 0.35);
+  font-size: 12px;
+  animation: banner-slide-in 0.25s ease-out;
+}
+
+@keyframes banner-slide-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.alert-banner-icon { font-size: 16px; flex-shrink: 0; }
+
+.alert-banner-body {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.alert-banner-fly {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.alert-banner-fly:hover { background: rgba(255, 255, 255, 0.22); }
+
+.alert-banner-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  flex-shrink: 0;
+  line-height: 1;
+  padding: 2px;
+}
+.alert-banner-dismiss:hover { color: var(--text); }
+
+/* ── Fly-to button on feed cards ──────────────────────────────────────────── */
+.feed-fly-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  margin-left: 4px;
+  opacity: 0.5;
+  vertical-align: middle;
+}
+.feed-card:hover .feed-fly-btn { opacity: 1; }
+
+/* ── Severity color hints on feed cards ───────────────────────────────────── */
+.feed-card[data-severity="warning"]  { border-left: 2px solid #f5a623; }
+.feed-card[data-severity="critical"] { border-left: 2px solid #d0021b; }
+
+/* ── Sidebar region alerts ────────────────────────────────────────────────── */
+#region-alerts {
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+#region-alerts-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+  padding: 8px 14px 4px;
+}
+
+#region-alerts-list {
+  list-style: none;
+  padding: 0 0 6px;
+}
+
+.region-alert-item {
+  display: grid;
+  grid-template-columns: 44px auto 1fr;
+  gap: 6px;
+  padding: 4px 14px;
+  font-size: 11px;
+  line-height: 1.4;
+  border-bottom: 1px solid var(--border);
+  align-items: baseline;
+}
+.region-alert-item[data-severity="warning"]  { border-left: 2px solid #f5a623; }
+.region-alert-item[data-severity="critical"] { border-left: 2px solid #d0021b; }
+
+.region-alert-time   { color: var(--text-muted); white-space: nowrap; }
+.region-alert-label  { font-weight: 600; color: var(--text); white-space: nowrap; }
+.region-alert-detail { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ── Scrollbar ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

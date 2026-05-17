@@ -37,12 +37,24 @@
       <aside id="feed-panel" aria-label="Live event feed">
         <div id="feed-header">
           <h2>Live Feed</h2>
+          <button id="feed-sound-btn" title="Toggle sound alerts (off)" aria-label="Toggle sound alerts" aria-pressed="false">🔇</button>
           <div id="feed-status">Connecting…</div>
           <span id="feed-last-updated"></span>
         </div>
+
+        <!-- Severity filter pills -->
+        <div id="feed-filters" role="group" aria-label="Filter events by severity">
+          <button class="feed-filter-pill active" data-severity="all">All</button>
+          <button class="feed-filter-pill" data-severity="warning">⚠ Warning</button>
+          <button class="feed-filter-pill" data-severity="critical">🚨 Critical</button>
+        </div>
+
+        <!-- Pinned critical alert banner -->
+        <div id="alert-banner" hidden aria-live="assertive" aria-label="Active critical alerts"></div>
+
         <ul id="feed-cards" aria-live="polite" aria-label="Recent events">
           <li class="feed-placeholder">
-            Live data events will appear here once the backend feed is active (Phase 5).
+            Live data events will appear here once the backend feed is active.
           </li>
         </ul>
       </aside>
@@ -106,6 +118,13 @@
 
         <!-- Right column: RAG question/answer -->
         <div id="sidebar-rag">
+
+          <!-- Recent feed alerts for this region (only shown for High+ cells) -->
+          <div id="region-alerts" hidden>
+            <div id="region-alerts-header">Recent alerts for this region</div>
+            <ul id="region-alerts-list" aria-label="Recent alerts for this region"></ul>
+          </div>
+
           <div id="rag-input-row">
             <input
               type="text"

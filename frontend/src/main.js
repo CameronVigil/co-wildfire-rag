@@ -2,9 +2,11 @@ import './styles/main.css';
 import { initMap, getMap } from './map.js';
 import { initSidebar, bindSendButton, openWithRegion, showLoading, showError, renderAnswer } from './sidebar.js';
 import { postQuery } from './api.js';
-import { initFeed, setInfoCallback } from './feed.js';
+import { initFeed, setInfoCallback, setMapHandlers } from './feed.js';
 import { initInfoPanel, setInfoText, resetInfoText } from './info.js';
 import { filterByRiskCategory } from './layers/riskGrid.js';
+import { addCriticalPulse } from './layers/criticalPulse.js';
+import { cellToLatLng } from 'h3-js';
 
 // ── Info panel ────────────────────────────────────────────────────────────────
 
@@ -25,6 +27,16 @@ const closeBtn = document.getElementById('sidebar-close-btn');
 closeBtn?.addEventListener('click', resetInfoText);
 
 // ── Feed ──────────────────────────────────────────────────────────────────────
+
+setMapHandlers({
+  flyTo: (h3Index) => {
+    try {
+      const [lat, lng] = cellToLatLng(h3Index);
+      getMap()?.flyTo({ center: [lng, lat], zoom: 12 });
+    } catch { /* invalid h3Index */ }
+  },
+  pulse: (h3Index) => addCriticalPulse(getMap(), h3Index),
+});
 
 initFeed();
 
@@ -194,4 +206,26 @@ const FEED_TYPE_HTML = {
     `<span style="color:var(--text);font-weight:600;">Road Closure (CDOT)</span> — ` +
     `Colorado DOT has reported a road closure or alert related to fire, smoke, or evacuation activity. ` +
     `Check the linked report for affected routes and detour information.`,
+
+  'news-article':
+    `<span style="color:var(--text);font-weight:600;">News Article</span> — ` +
+    `A Colorado wildfire news article was detected in a fire-focused RSS feed (Colorado Sun, Denver Post, CSFS). ` +
+    `Severity is escalated to "warning" if the headline mentions evacuation or structure threats.`,
+
+  'evacuation-alert':
+    `<span style="color:var(--text);font-weight:600;">Evacuation Alert</span> — ` +
+    `A county Office of Emergency Services (Jefferson, Larimer, El Paso, or Arapahoe) issued a fire-related ` +
+    `emergency notice. These are the highest-priority events — treat as credible and act quickly.`,
+
+  'spot-forecast':
+    `<span style="color:var(--text);font-weight:600;">Spot Forecast (NWS)</span> — ` +
+    `A Fire Weather Statement (FWS) was issued by a National Weather Service Weather Forecast Office. ` +
+    `FWS products are issued specifically for active incidents being managed by an IMT — ` +
+    `their issuance is near-definitive confirmation of an active managed fire.`,
+
+  'raws-alert':
+    `<span style="color:var(--text);font-weight:600;">RAWS Alert</span> — ` +
+    `A Remote Automated Weather Station near a high-risk region detected a sudden wind spike (≥15 mph) ` +
+    `or relative humidity drop (≥10 percentage points). These rapid changes can accelerate fire spread ` +
+    `dramatically. Severity is "critical" when both thresholds are crossed simultaneously.`,
 };

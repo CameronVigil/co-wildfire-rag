@@ -19,6 +19,20 @@ public class FeedService
         get { lock (_lock) return _recent.ToList(); }
     }
 
+    /// <summary>
+    /// Returns the most recent <paramref name="limit"/> events, optionally filtered by H3 index.
+    /// </summary>
+    public IReadOnlyList<LiveFeedEvent> GetRecent(string? h3Index, int limit)
+    {
+        lock (_lock)
+        {
+            IEnumerable<LiveFeedEvent> src = _recent;
+            if (h3Index != null)
+                src = src.Where(e => e.H3Index == h3Index);
+            return src.TakeLast(limit).ToList();
+        }
+    }
+
     public ChannelReader<LiveFeedEvent> Subscribe()
     {
         var ch = Channel.CreateBounded<LiveFeedEvent>(new BoundedChannelOptions(200)

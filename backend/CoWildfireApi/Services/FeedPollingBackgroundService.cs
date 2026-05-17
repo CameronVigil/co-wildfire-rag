@@ -9,6 +9,10 @@ public class FeedPollingBackgroundService : BackgroundService
     private readonly InciwebFeedPoller _inciweb;
     private readonly NifcIncidentPoller _nifc;
     private readonly CdotRssPoller _cdot;
+    private readonly NewsRssPoller _news;
+    private readonly ColoradoCountyOesPoller _oes;
+    private readonly NwsSpotForecastPoller _spotForecast;
+    private readonly RawsAlertPoller _rawsAlert;
     private readonly IConfiguration _config;
     private readonly ILogger<FeedPollingBackgroundService> _logger;
 
@@ -20,18 +24,26 @@ public class FeedPollingBackgroundService : BackgroundService
         InciwebFeedPoller inciweb,
         NifcIncidentPoller nifc,
         CdotRssPoller cdot,
+        NewsRssPoller news,
+        ColoradoCountyOesPoller oes,
+        NwsSpotForecastPoller spotForecast,
+        RawsAlertPoller rawsAlert,
         IConfiguration config,
         ILogger<FeedPollingBackgroundService> logger)
     {
-        _firms   = firms;
-        _airNow  = airNow;
-        _hms     = hms;
-        _noaa    = noaa;
-        _inciweb = inciweb;
-        _nifc    = nifc;
-        _cdot    = cdot;
-        _config  = config;
-        _logger  = logger;
+        _firms        = firms;
+        _airNow       = airNow;
+        _hms          = hms;
+        _noaa         = noaa;
+        _inciweb      = inciweb;
+        _nifc         = nifc;
+        _cdot         = cdot;
+        _news         = news;
+        _oes          = oes;
+        _spotForecast = spotForecast;
+        _rawsAlert    = rawsAlert;
+        _config       = config;
+        _logger       = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -53,7 +65,11 @@ public class FeedPollingBackgroundService : BackgroundService
                     _noaa.PollExpandedAlertsAsync(stoppingToken),
                     _inciweb.PollAsync(stoppingToken),
                     _nifc.PollAsync(stoppingToken),
-                    _cdot.PollAsync(stoppingToken));
+                    _cdot.PollAsync(stoppingToken),
+                    _news.PollAsync(stoppingToken),
+                    _oes.PollAsync(stoppingToken),
+                    _spotForecast.PollAsync(stoppingToken),
+                    _rawsAlert.PollAsync(stoppingToken));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
