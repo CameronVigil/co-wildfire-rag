@@ -27,6 +27,8 @@ node_modules/
 
 # Logs
 *.log
+logs/
 
 # Large data files (MTBS shapefiles etc — download separately)
 backend/data/
+backend/CoWildfireApi/Data/tiger/

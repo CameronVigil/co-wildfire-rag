@@ -47,8 +47,11 @@
 | 6 | **Complete** | HMS smoke, county borders, origin classifier refactor |
 | 7 | **Complete** | Map detail, terrain, risk highlighting, UX polish |
 | 8 | Not Started | Cloud migration (Azure + Claude) |
-| 9 | Planned | Live feed enrichment (expanded NWS alerts, InciWeb incident tracking, NIFC/WFIGS, CDOT closures) |
-| 10 | Planned | High-risk region intelligence (live news, satellite upgrade, lightning, scanner transcription) |
+| 9 | **Complete** | Live feed enrichment (expanded NWS alerts, InciWeb incident tracking, NIFC/WFIGS, CDOT closures) |
+| 10a | **Complete** | High-risk region intelligence — quick wins (news RSS, county OES alerts, NWS spot forecasts, RAWS alerts, critical UX) |
+| 10b | Not Started | Satellite upgrade (GOES-East fire detection + lightning) |
+| 10c | Not Started | Social layer (Reddit fire reports) |
+| 10d | Not Started | Paid sources (X API, Broadcastify scanner) |
 
 ---
 
@@ -554,6 +557,14 @@ A cell is "actively monitored" when `current_risk_score >= 6.0`. All new event t
 5. **Sound alert** (opt-in) — a single short audio tone on `critical` events. Gated behind a speaker-icon toggle in the feed header; default off; stored in `localStorage`.
 
 6. **Severity filter pills** — replace current filter buttons with "All | Warning | Critical" pills above `#feed-cards`. "Critical" view hides `data-severity="info"` cards. Lets users silence routine data-fetch noise during an active event.
+
+7. **Colloquial region naming** — replace raw H3 cell indices with human-readable location names everywhere a cell is referenced in the UI.
+   - H3 indices (e.g., `8648db2cfffffff`) are opaque to users; replace with names like "Jefferson County – Evergreen Area" or "Larimer County – Fort Collins North"
+   - **Backend:** Add a nullable `display_name` column to `h3_cells`; populate once at grid-generation time using a two-step lookup: (1) county name from `co_counties` boundary join, (2) nearest named place (city/town/neighborhood) from a simple Nominatim reverse-geocode of the cell center, or from a pre-seeded place table derived from OpenFreeMap data
+   - **API:** Surface `displayName` in all responses that currently include `h3Index` — risk-grid GeoJSON feature properties, `/api/feed/recent` payloads, SSE event payloads for `risk_score`, `raws-alert`, `evacuation-alert`, etc.
+   - **Frontend:** Substitute `displayName` wherever `h3Index` is shown to users: sidebar header ("Region: Jefferson County – Evergreen Area"), live feed cards, alert banner, RAG query pre-fill context
+   - **Fallback:** If no named place is found within 25 km of cell center, use `"[County Name] – Unincorporated Area"`; if county lookup also fails, fall back to the raw H3 index
+   - **Data source:** `co_counties` table already populated from TIGER/Line seed; place names can be seeded from OpenFreeMap Nominatim (`https://nominatim.openstreetmap.org/reverse?lat=...&lon=...&format=json`) at grid-generation time — one call per cell, run once, cached forever in DB
 
 ---
 
