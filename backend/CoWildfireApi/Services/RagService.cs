@@ -7,6 +7,7 @@ using NetTopologySuite.Geometries;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 using System.Diagnostics;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -18,26 +19,31 @@ namespace CoWildfireApi.Services;
 ///
 /// Pipeline per query:
 ///   1. Load H3 cell stats + current conditions from h3_cells (geographic context)
-///   2. Embed the user's question with EmbeddingService (nomic-embed-text)
-///   3. Dense vector search in Qdrant "wildfire_docs" collection (top-20, CO state filter)
-///   4. Keyword re-rank retrieved documents with a BM25-inspired scorer
-///   5. RRF (Reciprocal Rank Fusion) merge of semantic + keyword rank lists
-///   6. Take top-5 chunks as context
-///   7. Build structured system prompt with cell stats, conditions, and retrieved context
-///   8. Call llama3.2 via Ollama chat API
-///   9. Return structured QueryResponse matching the API spec
-///
-/// The keyword re-ranking (step 4) supplements dense search for fire-name lookups
-/// like "Cameron Peak Fire" that pure semantic search may miss.
-///
-/// Note: Ollama llama3.2 must be running locally. Fails gracefully if unavailable.
+///   2. Load statewide aggregate conditions from h3_cells (top-risk regions, red flag coverage)
+///   3. Fetch live active incidents from NIFC ArcGIS API
+///   4. Embed the user's question with EmbeddingService (nomic-embed-text)
+///   5. Dense vector search in Qdrant "wildfire_docs" collection (top-20, CO state filter)
+///   6. Keyword re-rank retrieved documents with a BM25-inspired scorer
+///   7. RRF (Reciprocal Rank Fusion) merge of semantic + keyword rank lists
+///   8. Take top-5 chunks as context
+///   9. Build structured system prompt with cell stats, conditions, aggregate context, retrieved docs
+///  10. Call llama3.2 via Ollama chat API
+///  11. Return structured QueryResponse matching the API spec
 /// </summary>
 public class RagService
 {
     private const string CollectionName = "wildfire_docs";
-    private const int    DenseTopK      = 20;  // retrieve this many before re-ranking
-    private const int    FinalTopK      = 5;   // pass this many to the LLM
-    private const int    RrfK           = 60;  // RRF constant (standard value)
+    private const int    DenseTopK      = 20;
+    private const int    FinalTopK      = 5;
+    private const int    RrfK           = 60;
+
+    // NIFC current wildland fire locations, Colorado only
+    private const string NifcQueryUrl =
+        "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/" +
+        "Current_WildlandFire_Locations/FeatureServer/0/query" +
+        "?where=POOState%20%3D%20%27US-CO%27" +
+        "&outFields=UniqueFireIdentifier%2CIncidentName%2CDailyAcres%2CPercentContained%2CFireDiscoveryDateTime" +
+        "&f=json&resultRecordCount=20";
 
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly QdrantClient     _qdrant;
@@ -45,12 +51,14 @@ public class RagService
     private readonly FeedService      _feed;
     private readonly IConfiguration   _config;
     private readonly ILogger<RagService> _logger;
+    private readonly HttpClient       _http;
 
     public RagService(
         IDbContextFactory<AppDbContext> dbFactory,
         QdrantClient qdrant,
         EmbeddingService embed,
         FeedService feed,
+        IHttpClientFactory httpFactory,
         IConfiguration config,
         ILogger<RagService> logger)
     {
@@ -60,6 +68,9 @@ public class RagService
         _feed      = feed;
         _config    = config;
         _logger    = logger;
+        _http      = httpFactory.CreateClient();
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("CoWildfireAnalyzer/1.0 (contact@cowildfire.dev)");
+        _http.Timeout = TimeSpan.FromSeconds(10);
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -71,7 +82,11 @@ public class RagService
         // 1. Resolve H3 cell
         var cell = await ResolveCellAsync(request, ct);
 
-        // 2. Embed the question
+        // 2. Gather statewide aggregate context and live NIFC incidents in parallel
+        var aggregateTask = GetAggregateContextAsync(ct);
+        var nifcTask      = GetLiveIncidentsAsync(ct);
+
+        // 3. Embed the question
         float[] queryEmbedding;
         try
         {
@@ -83,24 +98,28 @@ public class RagService
             return BuildMinimalResponse(cell, sw.ElapsedMilliseconds, "embedding_failed");
         }
 
-        // 3. Dense vector search in Qdrant
+        // 4. Dense vector search in Qdrant
         var denseResults = await SearchQdrantAsync(queryEmbedding, ct);
 
-        // 4. Keyword re-rank
+        // 5. Keyword re-rank
         var keywordRanked = KeywordRank(denseResults, request.Question);
 
-        // 5. RRF merge of dense + keyword rank lists
+        // 6. RRF merge of dense + keyword rank lists
         var merged = ReciprocalRankFusion(denseResults, keywordRanked);
 
-        // 6. Take top-5
+        // 7. Take top-5
         var topChunks = merged.Take(FinalTopK).ToList();
 
-        // 7. Build prompt
-        string context       = BuildContext(topChunks);
-        string systemPrompt  = BuildSystemPrompt(cell, context);
-        string modelName     = _config["Ollama:ChatModel"] ?? "llama3.2";
+        // 8. Await background context tasks
+        string aggregateContext = await aggregateTask;
+        string liveIncidents    = await nifcTask;
 
-        // 8. Call LLM
+        // 9. Build prompt with all available context
+        string context      = BuildContext(topChunks);
+        string systemPrompt = BuildSystemPrompt(cell, context, aggregateContext, liveIncidents);
+        string modelName    = _config["Ollama:ChatModel"] ?? "llama3.2";
+
+        // 10. Call LLM
         string answer;
         try
         {
@@ -121,19 +140,19 @@ public class RagService
             Severity = "info",
             Source   = "RagService",
             H3Index  = cell?.H3Index,
-            Detail   = $"RAG query answered in {sw.ElapsedMilliseconds} ms ({topChunks.Count} sources)",
+            Detail   = $"RAG query answered in {sw.ElapsedMilliseconds} ms ({topChunks.Count} sources, NIFC: {(liveIncidents.Length > 10 ? "yes" : "none")})",
         }, ct);
 
-        // 9. Assemble response
+        // 11. Assemble response
         return new QueryResponse
         {
-            Answer         = answer,
-            Sources        = topChunks.Select(BuildSourceDocument).ToList(),
-            CellStats      = cell != null ? BuildCellStats(cell) : null,
+            Answer            = answer,
+            Sources           = topChunks.Select(BuildSourceDocument).ToList(),
+            CellStats         = cell != null ? BuildCellStats(cell) : null,
             CurrentConditions = cell != null ? BuildCurrentConditions(cell) : null,
-            ProcessingMs   = sw.ElapsedMilliseconds,
-            ModelUsed      = modelName,
-            ChunksRetrieved = topChunks.Count,
+            ProcessingMs      = sw.ElapsedMilliseconds,
+            ModelUsed         = modelName,
+            ChunksRetrieved   = topChunks.Count,
         };
     }
 
@@ -170,6 +189,136 @@ public class RagService
             return new List<ScoredPoint>();
         }
     }
+
+    // ── Statewide aggregate context ───────────────────────────────────────────
+
+    /// <summary>
+    /// Queries h3_cells for statewide summary stats and top high-risk regions.
+    /// Returns a formatted string injected into the system prompt.
+    /// </summary>
+    private async Task<string> GetAggregateContextAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+            var scored = db.H3Cells.AsNoTracking().Where(c => c.CurrentRiskScore.HasValue);
+
+            // Statewide scalar summary
+            var summary = await scored
+                .GroupBy(_ => true)
+                .Select(g => new
+                {
+                    TotalCells    = g.Count(),
+                    AvgRisk       = g.Average(c => c.CurrentRiskScore),
+                    MaxRisk       = g.Max(c => c.CurrentRiskScore),
+                    RedFlagCount  = g.Count(c => c.RedFlagWarning),
+                    SmokeCount    = g.Count(c => c.SmokePresent),
+                    AvgWind       = g.Average(c => c.WindSpeedMph),
+                    AvgRh         = g.Average(c => c.RelativeHumidityPct),
+                })
+                .FirstOrDefaultAsync(ct);
+
+            if (summary == null) return string.Empty;
+
+            // Top 5 highest-risk cells
+            var topCells = await scored
+                .OrderByDescending(c => c.CurrentRiskScore)
+                .Select(c => new
+                {
+                    c.H3Index,
+                    c.CurrentRiskScore,
+                    c.WindSpeedMph,
+                    c.RelativeHumidityPct,
+                    c.RedFlagWarning,
+                })
+                .Take(5)
+                .ToListAsync(ct);
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Scored cells: {summary.TotalCells:N0}");
+            sb.AppendLine($"Statewide average risk score: {summary.AvgRisk:F2}/10");
+            sb.AppendLine($"Highest single-cell risk score: {summary.MaxRisk:F2}/10");
+            sb.AppendLine($"Cells under Red Flag Warning: {summary.RedFlagCount:N0} of {summary.TotalCells:N0} ({(summary.TotalCells > 0 ? 100.0 * summary.RedFlagCount / summary.TotalCells : 0):F0}%)");
+            if (summary.SmokeCount > 0)
+                sb.AppendLine($"Cells with smoke detected: {summary.SmokeCount:N0}");
+            if (summary.AvgWind.HasValue)
+                sb.AppendLine($"Statewide average wind speed: {summary.AvgWind:F1} mph");
+            if (summary.AvgRh.HasValue)
+                sb.AppendLine($"Statewide average relative humidity: {summary.AvgRh:F1}%");
+
+            if (topCells.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Top highest-risk H3 cells (current scoring):");
+                foreach (var c in topCells)
+                {
+                    string cat = c.CurrentRiskScore.HasValue ? GetRiskCategory(c.CurrentRiskScore.Value) : "Unknown";
+                    string rfFlag = c.RedFlagWarning ? " [RED FLAG]" : "";
+                    sb.AppendLine($"  {c.H3Index}: {c.CurrentRiskScore:F2}/10 ({cat}){rfFlag}" +
+                                  (c.WindSpeedMph.HasValue ? $" Wind {c.WindSpeedMph} mph" : "") +
+                                  (c.RelativeHumidityPct.HasValue ? $" RH {c.RelativeHumidityPct}%" : ""));
+                }
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to build aggregate context");
+            return string.Empty;
+        }
+    }
+
+    // ── Live NIFC incident fetch ───────────────────────────────────────────────
+
+    /// <summary>
+    /// Fetches currently active Colorado wildland fire incidents from the NIFC ArcGIS API.
+    /// Returns a formatted string ready for prompt injection. Empty string if no incidents or on failure.
+    /// </summary>
+    private async Task<string> GetLiveIncidentsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var json = await _http.GetFromJsonAsync<JsonElement>(NifcQueryUrl, ct);
+            if (!json.TryGetProperty("features", out var features) || features.GetArrayLength() == 0)
+                return string.Empty;
+
+            var sb = new StringBuilder();
+            for (int i = 0; i < features.GetArrayLength(); i++)
+            {
+                var attrs = features[i].GetProperty("attributes");
+                string name = GetNifcStr(attrs, "IncidentName") ?? "Unknown Fire";
+                double? acres = GetNifcDouble(attrs, "DailyAcres");
+                double? pct   = GetNifcDouble(attrs, "PercentContained");
+                long?   discovered = GetNifcLong(attrs, "FireDiscoveryDateTime");
+
+                string discoveredStr = discovered.HasValue
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(discovered.Value).UtcDateTime.ToString("yyyy-MM-dd")
+                    : "unknown date";
+
+                sb.Append($"  • {name}: discovered {discoveredStr}");
+                if (acres.HasValue) sb.Append($", {acres:N0} acres");
+                if (pct.HasValue)   sb.Append($", {pct:N0}% contained");
+                sb.AppendLine();
+            }
+            return sb.ToString().TrimEnd();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "NIFC live incident fetch failed (non-fatal)");
+            return string.Empty;
+        }
+    }
+
+    private static string? GetNifcStr(JsonElement el, string key) =>
+        el.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static double? GetNifcDouble(JsonElement el, string key) =>
+        el.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
+
+    private static long? GetNifcLong(JsonElement el, string key) =>
+        el.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt64() : null;
 
     // ── Keyword ranking ───────────────────────────────────────────────────────
 
@@ -293,61 +442,85 @@ public class RagService
 
     // ── Prompt building ───────────────────────────────────────────────────────
 
-    private static string BuildSystemPrompt(H3Cell? cell, string retrievedContext)
+    private static string BuildSystemPrompt(
+        H3Cell? cell,
+        string retrievedContext,
+        string aggregateContext,
+        string liveIncidents)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("You are a Colorado wildfire risk analyst. Answer questions accurately " +
-                      "based on the data below. Cite specific fire names, years, and conditions " +
-                      "where available. Be concise and actionable. Keep your response under 350 words.");
+
+        sb.AppendLine("You are a Colorado wildfire risk analyst providing answers grounded solely in the data below.");
+        sb.AppendLine("RULES:");
+        sb.AppendLine("  1. ONLY use facts explicitly present in the sections below. Do NOT draw on training knowledge.");
+        sb.AppendLine("  2. If the data does not contain enough information to answer precisely, say exactly what IS known and what is NOT available in the current dataset.");
+        sb.AppendLine("  3. Always cite specific numbers (scores, wind speed, humidity, acreage, containment) from the data.");
+        sb.AppendLine("  4. Keep your response under 300 words. Lead with the direct answer, then supporting data.");
+        sb.AppendLine("  5. Never fabricate fire names, dates, or acreage not present below.");
         sb.AppendLine();
 
+        // ── Selected cell ──
         if (cell != null)
         {
-            sb.AppendLine("== CURRENT CELL CONDITIONS ==");
-            sb.AppendLine($"H3 Cell: {cell.H3Index} (Resolution {cell.Resolution})");
+            sb.AppendLine("== SELECTED CELL CONDITIONS ==");
+            sb.AppendLine($"H3 Cell: {cell.H3Index}");
             sb.AppendLine($"Risk Score: {cell.CurrentRiskScore?.ToString("F2") ?? "not yet scored"}/10" +
                           (cell.CurrentRiskScore.HasValue
                               ? $" ({GetRiskCategory(cell.CurrentRiskScore.Value)})"
                               : ""));
-            sb.AppendLine($"Fires in last 20 years: {cell.FiresLast20yr}");
-            sb.AppendLine($"Total acres burned: {cell.TotalAcresBurned:N0}");
+            sb.AppendLine($"Historical fires in last 20 years (MTBS): {cell.FiresLast20yr}");
+            sb.AppendLine($"Total acres burned historically: {cell.TotalAcresBurned:N0}");
             if (cell.AvgBurnSeverity.HasValue)
-                sb.AppendLine($"Avg burn severity (dNBR): {cell.AvgBurnSeverity:F0}");
+                sb.AppendLine($"Average burn severity (dNBR): {cell.AvgBurnSeverity:F0}");
             if (cell.YearsSinceLastFire.HasValue)
                 sb.AppendLine($"Years since last fire: {cell.YearsSinceLastFire}");
+            else
+                sb.AppendLine("Years since last fire: no historical fire recorded in this cell");
             sb.AppendLine();
-            sb.AppendLine("== WEATHER CONDITIONS ==");
-            if (cell.WindSpeedMph.HasValue)
-                sb.AppendLine($"Wind speed: {cell.WindSpeedMph} mph");
-            if (cell.RelativeHumidityPct.HasValue)
-                sb.AppendLine($"Relative humidity: {cell.RelativeHumidityPct}%");
-            if (cell.FuelMoisturePct.HasValue)
-                sb.AppendLine($"Fuel moisture (1-hr): {cell.FuelMoisturePct}%");
-            if (cell.DroughtIndex.HasValue)
-                sb.AppendLine($"Drought index (PDSI): {cell.DroughtIndex:F1}");
-            if (cell.DaysSinceRain.HasValue)
-                sb.AppendLine($"Days since rain: {cell.DaysSinceRain}");
-            sb.AppendLine($"Red Flag Warning: {(cell.RedFlagWarning ? "YES — extreme fire danger" : "No")}");
-            sb.AppendLine($"Weather data source: {cell.WeatherSource}");
+            sb.AppendLine("== CURRENT WEATHER (this cell) ==");
+            if (cell.WindSpeedMph.HasValue)       sb.AppendLine($"Wind speed: {cell.WindSpeedMph} mph");
+            if (cell.RelativeHumidityPct.HasValue) sb.AppendLine($"Relative humidity: {cell.RelativeHumidityPct}%");
+            if (cell.FuelMoisturePct.HasValue)     sb.AppendLine($"Fuel moisture (1-hr): {cell.FuelMoisturePct}%");
+            if (cell.DroughtIndex.HasValue)        sb.AppendLine($"Drought index (PDSI): {cell.DroughtIndex:F1}");
+            if (cell.DaysSinceRain.HasValue)       sb.AppendLine($"Days since rain: {cell.DaysSinceRain}");
+            sb.AppendLine($"Red Flag Warning active: {(cell.RedFlagWarning ? "YES" : "No")}");
+            sb.AppendLine($"Weather source: {cell.WeatherSource}");
+        }
+
+        // ── Statewide aggregate ──
+        if (!string.IsNullOrWhiteSpace(aggregateContext))
+        {
+            sb.AppendLine();
+            sb.AppendLine("== STATEWIDE CONDITIONS (all scored cells) ==");
+            sb.AppendLine(aggregateContext);
+        }
+
+        // ── Live active incidents ──
+        if (!string.IsNullOrWhiteSpace(liveIncidents))
+        {
+            sb.AppendLine();
+            sb.AppendLine("== ACTIVE COLORADO INCIDENTS (NIFC, live) ==");
+            sb.AppendLine(liveIncidents);
         }
         else
         {
-            sb.AppendLine("== NOTE ==");
-            sb.AppendLine("No specific cell selected. Providing general Colorado wildfire context.");
+            sb.AppendLine();
+            sb.AppendLine("== ACTIVE INCIDENTS ==");
+            sb.AppendLine("No active wildfire incidents reported by NIFC for Colorado at this time.");
         }
 
+        // ── Retrieved documents ──
         if (!string.IsNullOrWhiteSpace(retrievedContext))
         {
             sb.AppendLine();
-            sb.AppendLine("== RETRIEVED INCIDENT REPORTS & HISTORICAL RECORDS ==");
+            sb.AppendLine("== RETRIEVED INCIDENT REPORTS (Qdrant) ==");
             sb.AppendLine(retrievedContext);
         }
         else
         {
             sb.AppendLine();
-            sb.AppendLine("== NOTE ==");
-            sb.AppendLine("No incident report documents found for this query. " +
-                          "Answer based on the cell conditions above and general wildfire knowledge.");
+            sb.AppendLine("== RETRIEVED INCIDENT REPORTS ==");
+            sb.AppendLine("No historical incident documents retrieved. Do not substitute training knowledge for missing documents.");
         }
 
         return sb.ToString();
